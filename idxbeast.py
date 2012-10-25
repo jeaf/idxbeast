@@ -417,6 +417,10 @@ server_conn = None
 def bottle_idxbeast_jquery():
   return bottle.static_file('jquery.js', '.')
 
+@bottle.route('/jquery.cookie.js')
+def bottle_idxbeast_jquery():
+  return bottle.static_file('jquery.cookie.js', '.')
+
 @bottle.route('/jquery.encoding.digests.sha1.js')
 def bottle_idxbeast_jquery():
   return bottle.static_file('jquery.encoding.digests.sha1.js', '.')

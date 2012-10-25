@@ -5,6 +5,7 @@
   </head>
   <body>
     <script src="/jquery.js"></script>
+    <script src="/jquery.cookie.js"></script>
     <script src="/jquery.encoding.digests.sha1.js"></script>
     <script>
       $(document).ready(function()
@@ -34,7 +35,6 @@
           var pwd_hash = $.encoding.digests.hexSha1Str(pwd).toLowerCase();
           var sid = $.cookie('sid')
           var auth     = $.encoding.digests.hexSha1Str(pwd_hash + sid).toLowerCase()
-          console.log(auth)
           var loc_str = '/idxbeast?user=' + $('#inp_username').val() + '&auth=' + auth
           window.location = loc_str
           return false
@@ -43,7 +43,7 @@
     </script>
     <div>
       %if page == 'search':
-        <a href="/idxbeast/api/logout">Logout</a>
+        <a href="/idxbeast/logout">Logout</a>
         <form name="search_form">
           Query: <input id="inp_query" type="text" name="query"/>
           <input id="btn_search_submit" type="submit" value="Search"/>
