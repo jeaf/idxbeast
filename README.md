@@ -1,7 +1,7 @@
-idxbeast
-========
+idxbeast Content Indexer
+========================
 
-idxbeast is a simple content indexer
+<div style="float: left"><img src="idxbeast.jpg" /></div>
 
 Dependencies
 ------------
