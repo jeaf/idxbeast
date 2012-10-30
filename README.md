@@ -1,7 +1,4 @@
-idxbeast Content Indexer
-========================
-
-<div style="float: left"><img src="https://s3.amazonaws.com/jeaf/idxbeast/idxbeast.jpg"/></div>
+<div><img src="https://s3.amazonaws.com/jeaf/idxbeast/idxbeast.jpg"/></div>
 
 Dependencies
 ------------
