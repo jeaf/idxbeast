@@ -10,6 +10,7 @@ Dependencies
 
 * pysak: https://github.com/jeaf/pysak
 * pywin32: http://sourceforge.net/projects/pywin32
+* PyYAML: http://pyyaml.org/wiki/PyYAML
 
 Acknowledgements
 ----------------

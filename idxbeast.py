@@ -33,6 +33,7 @@ import traceback
 import bottle
 import unidecode
 import win32com.client
+import yaml
 
 sys.path.append('pysak')
 import cio
@@ -41,19 +42,20 @@ datastore.trace_sql = False # Set this to True to trace SQL statements
 import menu
 import util
 
+# Read config file
+cfg_file = os.path.expanduser(r'~\.idxbeast.config')
+cfg_obj = dict()
+if os.path.isfile(cfg_file):
+  with open(cfg_file, 'r') as f:
+    cfg_obj  = yaml.load(f)
 class cfg(object):
-  db_path               = os.path.expanduser(r'~\.idxbeast.db')
-  word_hash_cache_size  = 200000
-  indexed_file_types    = 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml'
-  doc_bundle_size       = 2000
-  indexer_proc_count    = 4
-  indexed_dirs          = [
-                           ur'C:\home\lib',
-                           ur'C:\home\program\script\test\idxbeast',
-                           ur'C:\Temp'
-                          ]
+  db_path               = cfg_obj.get('db_path', os.path.expanduser(r'~\.idxbeast.db'))
+  word_hash_cache_size  = cfg_obj.get('word_hash_cache_size', 10000)
+  indexed_file_types    = cfg_obj.get('indexed_file_types', 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml')
+  doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
+  indexer_proc_count    = cfg_obj.get('indexer_proc_count', 4)
+  indexed_dirs          = cfg_obj.get('indexed_dirs', [])
   indexed_email_folders = []
-  #process_docs(conn, iteremails('Inbox', conn))
   indexed_urls          = []
 
 # Create the translation table used with the str.translate method. This will
@@ -496,6 +498,17 @@ def conform_str(s, width):
     return s + ' '*(width - len(s))
   return s[0:width]
 
+default_config_str = '''
+db_path             : {}
+word_hash_cache_size: 100000
+indexed_file_types  : 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml'
+doc_bundle_size     : 2000
+indexer_proc_count  : 4
+indexed_dirs:
+  - C:\dir1
+  - C:\dir2
+'''.format(os.path.expanduser(r'~\.idxbeast.db'))
+
 def main():
 
   # Init DB
@@ -505,6 +518,16 @@ def main():
     print 'Creating locator index...',
     conn.execute("CREATE INDEX IF NOT EXISTS locator_idx ON tbl_DocumentTable ('locator')")
     print 'Done.'
+
+  # Check if config
+  if len(sys.argv) > 1 and sys.argv[1] == 'config':
+    if not os.path.isfile(cfg_file):
+      print 'Generating default configuration file...'
+      with open(cfg_file, 'w') as f:
+        f.write(default_config_str)
+    print 'Configuration file is located at {}, opening default editor...'.format(cfg_file)
+    subprocess.call('notepad.exe ' + cfg_file)
+    return
 
   # Check if server
   if len(sys.argv) > 1 and sys.argv[1] == 'server':
