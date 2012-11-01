@@ -55,7 +55,7 @@ class cfg(object):
   doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
   indexer_proc_count    = cfg_obj.get('indexer_proc_count', 4)
   indexed_dirs          = cfg_obj.get('indexed_dirs', [])
-  indexed_email_folders = []
+  indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
   indexed_urls          = []
 
 # Create the translation table used with the str.translate method. This will
