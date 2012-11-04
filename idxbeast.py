@@ -49,7 +49,9 @@ data_dir = os.path.expanduser(ur'~\.idxbeast')
 assert not os.path.isfile(data_dir)
 if not os.path.isdir(data_dir):
   os.mkdir(data_dir)
-db_path = os.path.join(data_dir, 'idxbeast.db')
+db_path     = os.path.join(data_dir, 'idxbeast.db')
+db_path_doc = os.path.join(data_dir, 'doc.db')
+db_path_idx = os.path.join(data_dir, 'idx.db')
 
 # Initialize config file, creating it if necessary
 cfg_file = os.path.join(data_dir, u'settings.yaml')
@@ -93,7 +95,7 @@ class cfg(object):
   doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
   indexed_dirs          = cfg_obj.get('indexed_dirs', [])
   indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
-  indexed_urls          = []
+  indexed_urls          = cfg_obj.get('indexed_urls', [])
 
 # Create the translation table used with the str.translate method. This will
 # replace all uppercase chars with their lowercase equivalent, and numbers
@@ -272,12 +274,16 @@ def iteremails(folder_filter):
         print 'Exception while processing Outlook folder, information follows'
         traceback.print_exc()
 
-def search(conn, words):
+def search(words):
+
+  # Connect to DB
+  conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+  conn_idx = datastore.SqliteTable.connect(db_path_idx, MatchTable)
 
   # Extract the matches for all words
   matches = []
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
-    row = MatchTable.selectone(conn, id=word_hash)
+    row = MatchTable.selectone(conn_idx, id=word_hash)
     if row != None:
       matches.append(cPickle.loads(bz2.decompress(row.matches)))
     else:
@@ -294,7 +300,7 @@ def search(conn, words):
   docs = []
   print 'Resolving documents...'
   for match,relev in matches:
-    rows = DocumentTable.select(conn, id=match)
+    rows = DocumentTable.select(conn_doc, id=match)
     for row in rows:
       new_doc = MenuDoc(relev, locator=row.locator, title=row.title)
       new_doc.id = match
@@ -337,22 +343,22 @@ dispatcher_shared_data.status = 'Idle'
 for dat in indexer_shared_data_array:
   dat.status = 'Idle'
 
-def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock):
+def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx):
   if len(bundle) == 0:
     return
   for i in itertools.cycle(range(len(worker_procs))):
     if worker_procs[i] and worker_procs[i].is_alive():
       time.sleep(0.1)
     else:
-      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock))
+      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock_doc, db_lock_idx))
       worker_procs[i].start()
       del bundle[:]
       return
 
-def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_roots_id, db_lock):
+def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_roots_id, db_lock_doc, db_lock_idx):
 
-  # Connect to DB
-  conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable)
+  # Connect to doc DB
+  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
 
   # Create the worker processes slots
   worker_procs = [None for s in indexer_shared_data_array]
@@ -395,14 +401,14 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_
   # Dispatch bundles to indexer processes
   dispatcher_shared_data.status = 'Dispatching bundles'
   for bundle in (all_updated_docs[i:i+cfg.doc_bundle_size] for i in range(0, len(all_updated_docs), cfg.doc_bundle_size)):
-    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock)
+    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx)
 
   # Wait on indexer processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
   [p.join() for p in worker_procs if p]
   dispatcher_shared_data.status = 'Idle'
 
-def indexer_proc(i, shared_data_array, bundle, db_lock):
+def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
 
   # Index documents
   assert len(bundle) > 0
@@ -420,14 +426,10 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
     shared_data_array[i].doc_done_count += 1
   shared_data_array[i].current_doc = ''
 
-  # Connect to database
-  shared_data_array[i].status         = 'Waiting on DB lock (connection)'
-  with db_lock:
-    conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable)
-
   # Flush words
-  shared_data_array[i].status = 'Waiting on DB lock (match update)'
-  with db_lock:
+  shared_data_array[i].status = 'IDX database locked'
+  with db_lock_idx:
+    conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
     shared_data_array[i].status = 'Writing matches'
     tuples_upd = []
     tuples_new = []
@@ -440,15 +442,17 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
         tuples_new.append((word_hash, sqlite3.Binary(bz2.compress(cPickle.dumps(matches)))))
     MatchTable.insertmany(conn, ['id', 'matches'], tuples_new)
     MatchTable.updatemany(conn, ['matches'], ['id'], tuples_upd)
+    conn.close()
 
   # Flush updated docs
+  shared_data_array[i].status = 'Generating document updates'
   tuples = ((doc.mtime,doc.id) for doc in updated_docs)
-  shared_data_array[i].status = 'Waiting on DB lock (doc. updates)'
-  with db_lock:
+  shared_data_array[i].status = 'DOC database locked'
+  with db_lock_doc:
+    conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
     shared_data_array[i].status = 'Writing document updates'
     DocumentTable.updatemany(conn, val_cols=('mtime',), key_cols=('id',), tuples=tuples)
-
-  conn.close()
+    conn.close()
 
   shared_data_array[i].status = 'Idle'
 
@@ -540,12 +544,10 @@ def conform_str(s, width):
 def main():
 
   # Init DB
-  print 'DB: {}'.format(db_path)
-  conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable, SessionTable, UserTable)
+  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   with conn:
-    print 'Creating locator index...',
     conn.execute("CREATE INDEX IF NOT EXISTS locator_idx ON tbl_DocumentTable ('locator')")
-    print 'Done.'
+  conn.close()
 
   # Check if config
   if len(sys.argv) > 1 and sys.argv[1] == 'config':
@@ -554,26 +556,26 @@ def main():
     return
 
   # Check if server
-  if len(sys.argv) > 1 and sys.argv[1] == 'server':
-    run_server(conn)
-    return
+  #if len(sys.argv) > 1 and sys.argv[1] == 'server':
+  #  run_server(conn)
+  #  return
 
   # Check if add user (for web server)
-  if len(sys.argv) > 1 and sys.argv[1] == 'user':
-    user_name = sys.argv[2]
-    if UserTable.exists(conn, name=user_name):
-      print 'User {} already exists'.format(user_name)
-    else:
-      print 'Creating user {}'.format(user_name)
-      pwd = getpass.getpass()
-      UserTable.insert(conn, name=user_name, pwd_hash=hashlib.sha1(pwd).hexdigest())
-    return
+  #if len(sys.argv) > 1 and sys.argv[1] == 'user':
+  #  user_name = sys.argv[2]
+  #  if UserTable.exists(conn, name=user_name):
+  #    print 'User {} already exists'.format(user_name)
+  #  else:
+  #    print 'Creating user {}'.format(user_name)
+  #    pwd = getpass.getpass()
+  #    UserTable.insert(conn, name=user_name, pwd_hash=hashlib.sha1(pwd).hexdigest())
+  #  return
     
   # Check if search
   if len(sys.argv) == 3 and sys.argv[1] == 'search':
     print 'Executing search...'
 
-    docs = search(conn, sys.argv[2])
+    docs = search(sys.argv[2])
     if docs:
       if len(docs) > 25:
         print
@@ -609,8 +611,9 @@ def main():
       dat.status = 'Idle'
 
     # Launch dispatcher process
-    db_lock = mt.Lock()
-    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array, None, db_lock))
+    db_lock_doc = mt.Lock()
+    db_lock_idx = mt.Lock()
+    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array, None, db_lock_doc, db_lock_idx))
     disp.start()
 
     # Wait for indexing to complete, update status
