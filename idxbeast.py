@@ -19,6 +19,8 @@ import datetime
 import getpass
 import hashlib
 import itertools
+import logging
+import logging.handlers
 import multiprocessing as mt
 import operator
 import os
@@ -42,18 +44,53 @@ datastore.trace_sql = False # Set this to True to trace SQL statements
 import menu
 import util
 
-# Read config file
-cfg_file = os.path.expanduser(r'~\.idxbeast.config')
+# Initialize data dir, creating it if necessary
+data_dir = os.path.expanduser(ur'~\.idxbeast')
+assert not os.path.isfile(data_dir)
+if not os.path.isdir(data_dir):
+  os.mkdir(data_dir)
+db_path = os.path.join(data_dir, 'idxbeast.db')
+
+# Initialize config file, creating it if necessary
+cfg_file = os.path.join(data_dir, u'settings.yaml')
+assert not os.path.isdir(cfg_file)
+if not os.path.isfile(cfg_file):
+  with open(cfg_file, 'w') as f:
+    default_config_str = '''
+    indexer_db_count    : 4
+    indexer_proc_count  : 4
+    indexed_file_types  : 'bat c cpp cs cxx h hpp htm html ini java js log md py rest rst txt xml yaml yml'
+    word_hash_cache_size: 100000
+    doc_bundle_size     : 2000
+    indexed_dirs:
+      - C:\dir1
+      - C:\dir2
+    indexed_email_folders:
+      - Inbox
+    indexed_urls:
+      - https://github.com/jeaf
+    '''
+    f.write(default_config_str)
+
+# Initialize logging
+log = logging.getLogger('idxbeast')
+log.setLevel(logging.DEBUG)
+log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+log_handler   = logging.handlers.RotatingFileHandler(os.path.join(data_dir, 'log.txt'), maxBytes=1024**2, backupCount=5)
+log_handler.setFormatter(log_formatter)
+log.addHandler(log_handler)
+
+# Load configuration
 cfg_obj = dict()
 if os.path.isfile(cfg_file):
   with open(cfg_file, 'r') as f:
     cfg_obj  = yaml.load(f)
 class cfg(object):
-  db_path               = cfg_obj.get('db_path', os.path.expanduser(r'~\.idxbeast.db'))
-  word_hash_cache_size  = cfg_obj.get('word_hash_cache_size', 10000)
-  indexed_file_types    = cfg_obj.get('indexed_file_types', 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml')
-  doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
+  indexer_db_count      = cfg_obj.get('indexer_db_count', 4)
   indexer_proc_count    = cfg_obj.get('indexer_proc_count', 4)
+  indexed_file_types    = cfg_obj.get('indexed_file_types', 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml')
+  word_hash_cache_size  = cfg_obj.get('word_hash_cache_size', 10000)
+  doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
   indexed_dirs          = cfg_obj.get('indexed_dirs', [])
   indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
   indexed_urls          = []
@@ -165,7 +202,7 @@ def iterfiles(rootdir):
   assert os.path.isdir(rootdir), rootdir
   for f, error in util.walkdir(rootdir, maxdepth=9999, listdirs=False, file_filter=is_file_handled, file_wrapper=File):
     if error != None:
-      print error
+      log.warning('Cannot process file {}, error: {}'.format(f, error))
     else:
       yield f
 
@@ -175,8 +212,8 @@ class OutlookEmail(Document):
   objects can be found at
   http://msdn.microsoft.com/en-us/library/aa210946(v=office.11).aspx
   """
-  def __init__(self, conn, entry_id, mapi, from_, to_, subject, rt):
-    super(OutlookEmail, self).__init__(conn)
+  def __init__(self, entry_id, mapi, from_, to_, subject, rt):
+    super(OutlookEmail, self).__init__()
     self.locator = entry_id
     self.mapi = mapi
     self.from_ = from_
@@ -184,12 +221,12 @@ class OutlookEmail(Document):
     self.title = subject
     self.mtime = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
     self.update_required = False
-    row = DocumentTable.selectone(conn, locator=self.locator)
+    row = DocumentTable.selectone(locator=self.locator)
     if row == None or row.mtime < self.mtime:
       self.update_required = True
       if row != None:
-        DocumentTable.delete(conn, id=row.id)
-      self.id = DocumentTable.insert(conn, locator=self.locator, title=self.title)
+        DocumentTable.delete(id=row.id)
+      self.id = DocumentTable.insert(locator=self.locator, title=self.title)
   def __repr__(self):
     return '<Email ' + str(self.title) + '>'
   def get_text(self):
@@ -202,7 +239,7 @@ class OutlookEmail(Document):
       t = self.to_
     return ''.join((f, ' ', t, ' ', self.title, ' ', unicode(mail_item.Body)))
 
-def iteremails(folder_filter, conn):
+def iteremails(folder_filter):
   outlook = win32com.client.Dispatch('Outlook.Application')
   mapi = outlook.GetNamespace('MAPI')
   for f in mapi.Folders:
@@ -222,8 +259,7 @@ def iteremails(folder_filter, conn):
         while not table.EndOfTable:
           try:
             row = table.GetNextRow()
-            yield OutlookEmail(conn,
-                               row['EntryId'],
+            yield OutlookEmail(row['EntryId'],
                                mapi,
                                row['SenderName'],
                                ' '.join((row['To'], row['CC'], row['BCC'])),
@@ -316,7 +352,7 @@ def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lo
 def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_roots_id, db_lock):
 
   # Connect to DB
-  conn = datastore.SqliteTable.connect(cfg.db_path, DocumentTable, MatchTable)
+  conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable)
 
   # Create the worker processes slots
   worker_procs = [None for s in indexer_shared_data_array]
@@ -333,17 +369,20 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
   for doc in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
-    dispatcher_shared_data.total_listed += 1
-    dispatcher_shared_data.current_doc = doc.title
-    row = DocumentTable.selectone(conn, locator=doc.locator)
-    if row == None or row.mtime < doc.mtime:
-      if row != None:
-        doc_ids_to_delete.append((row.id,))
-      doc.id = DocumentTable.insert(conn, locator=doc.locator)
-      all_updated_docs.append(doc)
-    else:
-      # todo: count the skipped documents in the dispatcher shared memory
-      pass
+    try:
+      dispatcher_shared_data.total_listed += 1
+      dispatcher_shared_data.current_doc = doc.title
+      row = DocumentTable.selectone(conn, locator=doc.locator)
+      if row == None or row.mtime < doc.mtime:
+        if row != None:
+          doc_ids_to_delete.append((row.id,))
+        doc.id = DocumentTable.insert(conn, locator=doc.locator)
+        all_updated_docs.append(doc)
+      else:
+        # todo: count the skipped documents in the dispatcher shared memory
+        pass
+    except Exception, ex:
+      log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, ex))
 
   # Update or create documents in the DB
   dispatcher_shared_data.status = 'Deleting outdated documents'
@@ -384,7 +423,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
   # Connect to database
   shared_data_array[i].status         = 'Waiting on DB lock (connection)'
   with db_lock:
-    conn = datastore.SqliteTable.connect(cfg.db_path, DocumentTable, MatchTable)
+    conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable)
 
   # Flush words
   shared_data_array[i].status = 'Waiting on DB lock (match update)'
@@ -498,22 +537,11 @@ def conform_str(s, width):
     return s + ' '*(width - len(s))
   return s[0:width]
 
-default_config_str = '''
-db_path             : {}
-word_hash_cache_size: 100000
-indexed_file_types  : 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml'
-doc_bundle_size     : 2000
-indexer_proc_count  : 4
-indexed_dirs:
-  - C:\dir1
-  - C:\dir2
-'''.format(os.path.expanduser(r'~\.idxbeast.db'))
-
 def main():
 
   # Init DB
-  print 'DB: {}'.format(cfg.db_path)
-  conn = datastore.SqliteTable.connect(cfg.db_path, DocumentTable, MatchTable, SessionTable, UserTable)
+  print 'DB: {}'.format(db_path)
+  conn = datastore.SqliteTable.connect(db_path, DocumentTable, MatchTable, SessionTable, UserTable)
   with conn:
     print 'Creating locator index...',
     conn.execute("CREATE INDEX IF NOT EXISTS locator_idx ON tbl_DocumentTable ('locator')")
@@ -521,10 +549,6 @@ def main():
 
   # Check if config
   if len(sys.argv) > 1 and sys.argv[1] == 'config':
-    if not os.path.isfile(cfg_file):
-      print 'Generating default configuration file...'
-      with open(cfg_file, 'w') as f:
-        f.write(default_config_str)
     print 'Configuration file is located at {}, opening default editor...'.format(cfg_file)
     subprocess.call('notepad.exe ' + cfg_file)
     return
