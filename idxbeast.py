@@ -355,13 +355,17 @@ def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lo
       del bundle[:]
       return
 
-def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_roots_id, db_lock_doc, db_lock_idx):
-
-  # Connect to doc DB
-  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_doc, db_lock_idx):
 
   # Create the worker processes slots
   worker_procs = [None for s in indexer_shared_data_array]
+
+  # Read the entire document DB in memory
+  initial_docs = dict()
+  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+  doc_rows = DocumentTable.select(conn)
+  for doc in doc_rows:
+    initial_docs[doc.locator] = doc
 
   # List all documents
   # todo: possible optimization: don't create documents one by one in the DB,
@@ -369,7 +373,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_
   #       to do it one by one because the generation of the ID is handled by
   #       the DB.
   dispatcher_shared_data.status = 'Listing documents'
-  all_updated_docs   = []
+  updated_docs   = []
   doc_ids_to_delete  = []
   chained_iterfiles  = itertools.chain.from_iterable(iterfiles(rootdir)    for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
@@ -378,30 +382,33 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, selected_
     try:
       dispatcher_shared_data.total_listed += 1
       dispatcher_shared_data.current_doc = doc.title
-      row = DocumentTable.selectone(conn, locator=doc.locator)
-      if row == None or row.mtime < doc.mtime:
-        if row != None:
-          doc_ids_to_delete.append((row.id,))
-        doc.id = DocumentTable.insert(conn, locator=doc.locator)
-        all_updated_docs.append(doc)
+      init_doc = initial_docs.get(doc.locator)
+      if init_doc == None or init_doc.mtime < doc.mtime:
+        if init_doc != None:
+          doc_ids_to_delete.append((init_doc.id,))
+        with db_lock_doc:
+          doc.id = DocumentTable.insert(conn, locator=doc.locator)
+        updated_docs.append(doc)
       else:
         # todo: count the skipped documents in the dispatcher shared memory
         pass
+
+      # If we reached the bundle size, dispatch
+      if len(updated_docs) >= cfg.doc_bundle_size:
+        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_lock_idx)
+        updated_docs = []
+        
     except Exception, ex:
       log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, ex))
 
   # Update or create documents in the DB
   dispatcher_shared_data.status = 'Deleting outdated documents'
   if len(doc_ids_to_delete) > 0:
-    DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
+    with db_lock_doc:
+      DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
 
   # At this point we can close the DB connection
   conn.close()
-
-  # Dispatch bundles to indexer processes
-  dispatcher_shared_data.status = 'Dispatching bundles'
-  for bundle in (all_updated_docs[i:i+cfg.doc_bundle_size] for i in range(0, len(all_updated_docs), cfg.doc_bundle_size)):
-    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx)
 
   # Wait on indexer processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
@@ -613,7 +620,7 @@ def main():
     # Launch dispatcher process
     db_lock_doc = mt.Lock()
     db_lock_idx = mt.Lock()
-    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array, None, db_lock_doc, db_lock_idx))
+    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array, db_lock_doc, db_lock_idx))
     disp.start()
 
     # Wait for indexing to complete, update status
