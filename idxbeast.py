@@ -364,17 +364,13 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
   initial_docs = dict()
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   doc_rows = DocumentTable.select(conn)
+  next_doc_id = max(d.id for d in doc_rows)
   for doc in doc_rows:
     initial_docs[doc.locator] = doc
 
   # List all documents
-  # todo: possible optimization: don't create documents one by one in the DB,
-  #       but create them in one shot with a executemany call. It is simpler
-  #       to do it one by one because the generation of the ID is handled by
-  #       the DB.
   dispatcher_shared_data.status = 'Listing documents'
   updated_docs   = []
-  doc_ids_to_delete  = []
   chained_iterfiles  = itertools.chain.from_iterable(iterfiles(rootdir)    for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
@@ -385,9 +381,8 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
       init_doc = initial_docs.get(doc.locator)
       if init_doc == None or init_doc.mtime < doc.mtime:
         if init_doc != None:
-          doc_ids_to_delete.append((init_doc.id,))
-        with db_lock_doc:
-          doc.id = DocumentTable.insert(conn, locator=doc.locator)
+          doc.old_id = init_doc.id
+        doc.id = next_doc_id++
         updated_docs.append(doc)
       else:
         # todo: count the skipped documents in the dispatcher shared memory
@@ -425,10 +420,11 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
   shared_data_array[i].pid            = os.getpid()
   shared_data_array[i].bundle_size    = len(bundle)
   words = collections.defaultdict(dict)
-  updated_docs = []
+  docs_new          = []
+  doc_ids_to_delete = []
   for doc in bundle:
     shared_data_array[i].current_doc = doc.title
-    updated_docs.append(doc)
+    docs_new.append(doc)
     doc.index(words)
     shared_data_array[i].doc_done_count += 1
   shared_data_array[i].current_doc = ''
@@ -453,7 +449,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
 
   # Flush updated docs
   shared_data_array[i].status = 'Generating document updates'
-  tuples = ((doc.mtime,doc.id) for doc in updated_docs)
+  tuples = ((doc.mtime,doc.id) for doc in docs_new)
   shared_data_array[i].status = 'DOC database locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
