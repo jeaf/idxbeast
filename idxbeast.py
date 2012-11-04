@@ -373,7 +373,6 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
   # List all documents
   dispatcher_shared_data.status = 'Listing documents'
   updated_docs   = []
-  log.debug('indexed_dirs: {}'.format(cfg.indexed_dirs))
   chained_iterfiles  = itertools.chain.from_iterable(iterfiles(rootdir)    for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
@@ -382,11 +381,6 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
       dispatcher_shared_data.total_listed += 1
       dispatcher_shared_data.current_doc = doc.title
       init_doc = initial_docs.get(doc.locator)
-      if doc.locator == ur'C:\home\temp\jquery.js':
-        if init_doc:
-          log.debug('init_doc.mtime: {}, doc.mtime: {}'.format(init_doc.mtime, doc.mtime))
-        else:
-          log.debug('init_doc.mtime: {}, doc.mtime: {}'.format('not def', doc.mtime))
       if init_doc == None or init_doc.mtime < doc.mtime:
         if init_doc != None:
           doc.old_id = init_doc.id
@@ -464,7 +458,6 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
     shared_data_array[i].status = 'Writing document updates'
-    log.debug(tuples)
     DocumentTable.insertmany(conn, cols=['id', 'mtime', 'locator'], tuples=tuples)
 
     # Delete outdated documents
