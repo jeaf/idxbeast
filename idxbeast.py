@@ -364,13 +364,16 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
   initial_docs = dict()
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   doc_rows = DocumentTable.select(conn)
-  next_doc_id = max(d.id for d in doc_rows)
+  next_doc_id = 0
   for doc in doc_rows:
     initial_docs[doc.locator] = doc
+    next_doc_id = max(next_doc_id, doc.id)
+  next_doc_id += 1
 
   # List all documents
   dispatcher_shared_data.status = 'Listing documents'
   updated_docs   = []
+  log.debug('indexed_dirs: {}'.format(cfg.indexed_dirs))
   chained_iterfiles  = itertools.chain.from_iterable(iterfiles(rootdir)    for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
@@ -379,10 +382,16 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
       dispatcher_shared_data.total_listed += 1
       dispatcher_shared_data.current_doc = doc.title
       init_doc = initial_docs.get(doc.locator)
+      if doc.locator == ur'C:\home\temp\jquery.js':
+        if init_doc:
+          log.debug('init_doc.mtime: {}, doc.mtime: {}'.format(init_doc.mtime, doc.mtime))
+        else:
+          log.debug('init_doc.mtime: {}, doc.mtime: {}'.format('not def', doc.mtime))
       if init_doc == None or init_doc.mtime < doc.mtime:
         if init_doc != None:
           doc.old_id = init_doc.id
-        doc.id = next_doc_id++
+        doc.id = next_doc_id
+        next_doc_id += 1
         updated_docs.append(doc)
       else:
         # todo: count the skipped documents in the dispatcher shared memory
@@ -396,11 +405,10 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
     except Exception, ex:
       log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, ex))
 
-  # Update or create documents in the DB
-  dispatcher_shared_data.status = 'Deleting outdated documents'
-  if len(doc_ids_to_delete) > 0:
-    with db_lock_doc:
-      DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
+  # Final flush
+  if len(updated_docs) >= 0:
+    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_lock_idx)
+    updated_docs = []
 
   # At this point we can close the DB connection
   conn.close()
@@ -425,6 +433,8 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
   for doc in bundle:
     shared_data_array[i].current_doc = doc.title
     docs_new.append(doc)
+    if hasattr(doc, 'old_id'):
+      doc_ids_to_delete.append((doc.old_id,))
     doc.index(words)
     shared_data_array[i].doc_done_count += 1
   shared_data_array[i].current_doc = ''
@@ -449,12 +459,19 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
 
   # Flush updated docs
   shared_data_array[i].status = 'Generating document updates'
-  tuples = ((doc.mtime,doc.id) for doc in docs_new)
+  tuples = ((doc.id, doc.mtime, doc.locator) for doc in docs_new)
   shared_data_array[i].status = 'DOC database locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
     shared_data_array[i].status = 'Writing document updates'
-    DocumentTable.updatemany(conn, val_cols=('mtime',), key_cols=('id',), tuples=tuples)
+    log.debug(tuples)
+    DocumentTable.insertmany(conn, cols=['id', 'mtime', 'locator'], tuples=tuples)
+
+    # Delete outdated documents
+    shared_data_array[i].status = 'Deleting outdated documents'
+    if len(doc_ids_to_delete) > 0:
+      DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
+
     conn.close()
 
   shared_data_array[i].status = 'Idle'
