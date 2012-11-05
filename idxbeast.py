@@ -3,9 +3,7 @@
 """
 idxbeast.py - simple content indexer.
 
-This script implements a simple document indexing application. The application
-settings are modified by changing the parameters directly in the cfg class.
-todo: support a better way to handle the configuration.
+This script implements a simple document indexing application.
 
 Copyright (c) 2012, Francois Jeannotte.
 """
@@ -391,7 +389,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
   # List all documents
   dispatcher_shared_data.status = 'Listing documents'
   updated_docs   = []
-  chained_iterfiles  = itertools.chain.from_iterable(iterfiles(rootdir)    for rootdir   in cfg.indexed_dirs         )
+  chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir))    for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
   for doc in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
@@ -487,6 +485,10 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
 
   shared_data_array[i].db_id     = ''
   shared_data_array[i].db_status = ''
+  shared_data_array[i].doc_done_count = 0
+  shared_data_array[i].current_doc    = ''
+  shared_data_array[i].pid            = 0
+  shared_data_array[i].bundle_size    = 0
 
 server_conn = None
 
@@ -649,13 +651,14 @@ def main():
       print '-'*c_width
       print 'Dispatcher'
       print '-'*c_width
-      print str_fill('status          : {}'.format(dispatcher_shared_data.status)      , c_width)
-      print str_fill('documents listed: {}'.format(dispatcher_shared_data.total_listed), c_width)
-      print str_fill('current document: {}'.format(dispatcher_shared_data.current_doc) , c_width)
+      print 'status          : {}'.format(dispatcher_shared_data.status)
+      print 'documents listed: {}'.format(dispatcher_shared_data.total_listed)
+      print 'current document: {}'.format(str_fill(dispatcher_shared_data.current_doc, c_width-18))
       print
       print '-'*c_width
       print 'Indexer processes'
-      header = '{:^5} | {:^16} | {:^20} | {:^9} | {:^9}'.format('PID', 'Progress', 'Document', 'Active DB', 'DB Status')
+      print
+      header = '{:^5} | {:^18} | {:^55} | {:^7} | {:^8}'.format('PID', 'Progress', 'Document', 'DB', 'DB Status')
       print header
       print '-'*c_width
       for i in range(len(indexer_shared_data_array)):
@@ -663,8 +666,8 @@ def main():
         done_percentage = 0
         if dat.bundle_size > 0:
           done_percentage = 100*dat.doc_done_count / dat.bundle_size
-        print '{:>5} | {:>3} / {:>3} ({:>3}%) | {:>20} | {:^9} | {:^9}'.format(
-        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 20), dat.db_id, dat.db_status)
+        print '{:>5} | {:>4} / {:>4} ({:>3}%) | {:>55} | {:^7} | {:<8}'.format(
+        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55), dat.db_id, dat.db_status)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
