@@ -98,17 +98,22 @@ class cfg(object):
 def str_fill(s, length):
   """
   Truncates a string to the given length, e.g.,
-  str_fill('abcdefghijklmnopqrstuvwxyz', 15) -> 'abcde ... klmno'
+  str_fill('abcdefghijklmnopqrstuvwxyz', 15) -> 'abcdef...jklmno'
   str_fill('abcdef', 15)                     -> 'abcdef         '
   """
   assert length > 0
+  s = str(s)
   if len(s) == length:
     return s
   if len(s) > length:
-    s = s[-length:]
+    if length < 9:
+      s = s[-length:]
+    else:
+      q,r = divmod(length-3, 2)
+      s = s[0:q] + '...' + s[-(q+r):]
   if len(s) < length:
     s = s + ' '*(length - len(s))
-  assert len(s) == length
+  assert len(s) == length, 'len(s): {}, length:{}'.format(len(s), length)
   return s
 
 # Create the translation table used with the str.translate method. This will
@@ -364,7 +369,7 @@ def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lo
     return
   for i in itertools.cycle(range(len(worker_procs))):
     if worker_procs[i] and worker_procs[i].is_alive():
-      time.sleep(0.1)
+      time.sleep(0.01)
     else:
       worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock_doc, db_lock_idx))
       worker_procs[i].start()
@@ -649,16 +654,12 @@ def main():
       cio.setcurpos(curpos.x, curpos.y)
       print
       print '-'*c_width
-      print 'Dispatcher'
-      print '-'*c_width
-      print 'status          : {}'.format(dispatcher_shared_data.status)
-      print 'documents listed: {}'.format(dispatcher_shared_data.total_listed)
+      print 'status          : {}'.format(str_fill(dispatcher_shared_data.status, c_width-18))
+      print 'documents listed: {}'.format(str_fill(dispatcher_shared_data.total_listed, c_width-18))
       print 'current document: {}'.format(str_fill(dispatcher_shared_data.current_doc, c_width-18))
       print
       print '-'*c_width
-      print 'Indexer processes'
-      print
-      header = '{:^5} | {:^18} | {:^55} | {:^7} | {:^8}'.format('PID', 'Progress', 'Document', 'DB', 'DB Status')
+      header = '{:^5} | {:^18} | {:^55} | {:^6} | {:^8}'.format('PID', 'Progress', 'Document', 'DB', 'DB Status')
       print header
       print '-'*c_width
       for i in range(len(indexer_shared_data_array)):
@@ -666,8 +667,15 @@ def main():
         done_percentage = 0
         if dat.bundle_size > 0:
           done_percentage = 100*dat.doc_done_count / dat.bundle_size
-        print '{:>5} | {:>4} / {:>4} ({:>3}%) | {:>55} | {:^7} | {:<8}'.format(
-        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55), dat.db_id, dat.db_status)
+        print '{:>5} | {:>4} / {:>4} ({:>3}%) | {:>55} | {:^6} | '.format(
+        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55), dat.db_id),
+        if dat.db_status == 'writing':
+          col = 'FOREGROUND_GREEN'
+        elif dat.db_status == 'locked':
+          col = 'FOREGROUND_RED'
+        else:
+          col = None
+        cio.write_color(str_fill(dat.db_status, 10), col, endline=True)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
