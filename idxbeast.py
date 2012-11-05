@@ -97,6 +97,22 @@ class cfg(object):
   indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
   indexed_urls          = cfg_obj.get('indexed_urls', [])
 
+def str_fill(s, length):
+  """
+  Truncates a string to the given length, e.g.,
+  str_fill('abcdefghijklmnopqrstuvwxyz', 15) -> 'abcde ... klmno'
+  str_fill('abcdef', 15)                     -> 'abcdef         '
+  """
+  assert length > 0
+  if len(s) == length:
+    return s
+  if len(s) > length:
+    s = s[-length:]
+  if len(s) < length:
+    s = s + ' '*(length - len(s))
+  assert len(s) == length
+  return s
+
 # Create the translation table used with the str.translate method. This will
 # replace all uppercase chars with their lowercase equivalent, and numbers
 # and "_" are passed-through as is. All other chars are replaced with a
@@ -324,7 +340,8 @@ class MenuDoc(object):
       mapi.GetItemFromId(self.locator).Display()
 
 class IndexerSharedData(ctypes.Structure):
-  _fields_ = [('status'        , ctypes.c_char*40 ),
+  _fields_ = [('db_id'         , ctypes.c_char*10 ), # e.g., doc, idx-01, idx-02
+              ('db_status'     , ctypes.c_char*10 ), # e.g., idle, locked, writing
               ('doc_done_count', ctypes.c_int     ),
               ('current_doc'   , ctypes.c_char*380),
               ('pid'           , ctypes.c_int     ),
@@ -341,7 +358,8 @@ dispatcher_shared_data    = mt.Value(DispatcherSharedData)
 indexer_shared_data_array = mt.Array(IndexerSharedData, cfg.indexer_proc_count)
 dispatcher_shared_data.status = 'Idle'
 for dat in indexer_shared_data_array:
-  dat.status = 'Idle'
+  dat.db_id = ''
+  dat.db_status = ''
 
 def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx):
   if len(bundle) == 0:
@@ -416,7 +434,8 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
 
   # Index documents
   assert len(bundle) > 0
-  shared_data_array[i].status         = 'Indexing'
+  shared_data_array[i].db_id          = ''
+  shared_data_array[i].db_status      = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
   shared_data_array[i].pid            = os.getpid()
@@ -431,13 +450,13 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
       doc_ids_to_delete.append((doc.old_id,))
     doc.index(words)
     shared_data_array[i].doc_done_count += 1
-  shared_data_array[i].current_doc = ''
 
   # Flush words
-  shared_data_array[i].status = 'IDX database locked'
+  shared_data_array[i].db_id = 'idx-01'
+  shared_data_array[i].db_status = 'locked'
   with db_lock_idx:
     conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
-    shared_data_array[i].status = 'Writing matches'
+    shared_data_array[i].db_status = 'writing'
     tuples_upd = []
     tuples_new = []
     for word_hash,matches in words.iteritems():
@@ -452,22 +471,22 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
     conn.close()
 
   # Flush updated docs
-  shared_data_array[i].status = 'Generating document updates'
+  shared_data_array[i].db_id = 'doc'
   tuples = ((doc.id, doc.mtime, doc.locator) for doc in docs_new)
-  shared_data_array[i].status = 'DOC database locked'
+  shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-    shared_data_array[i].status = 'Writing document updates'
+    shared_data_array[i].db_status = 'writing'
     DocumentTable.insertmany(conn, cols=['id', 'mtime', 'locator'], tuples=tuples)
 
     # Delete outdated documents
-    shared_data_array[i].status = 'Deleting outdated documents'
     if len(doc_ids_to_delete) > 0:
       DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
 
     conn.close()
 
-  shared_data_array[i].status = 'Idle'
+  shared_data_array[i].db_id     = ''
+  shared_data_array[i].db_status = ''
 
 server_conn = None
 
@@ -547,13 +566,6 @@ def run_server(conn):
   server_conn = conn
   bottle.run(host='localhost', port=8080, debug=True, reloader=True)
 
-def conform_str(s, width):
-  if len(s) == width:
-    return s
-  if len(s) < width:
-    return s + ' '*(width - len(s))
-  return s[0:width]
-
 def main():
 
   # Init DB
@@ -620,8 +632,6 @@ def main():
     # Initialize shared mem structures
     # worker process
     dispatcher_shared_data.status = 'Starting'
-    for dat in indexer_shared_data_array:
-      dat.status = 'Idle'
 
     # Launch dispatcher process
     db_lock_doc = mt.Lock()
@@ -639,22 +649,24 @@ def main():
       print '-'*c_width
       print 'Dispatcher'
       print '-'*c_width
-      print conform_str('status          : {}'.format(dispatcher_shared_data.status)      , c_width)
-      print conform_str('documents listed: {}'.format(dispatcher_shared_data.total_listed), c_width)
-      print conform_str('current document: {}'.format(dispatcher_shared_data.current_doc) , c_width)
+      print str_fill('status          : {}'.format(dispatcher_shared_data.status)      , c_width)
+      print str_fill('documents listed: {}'.format(dispatcher_shared_data.total_listed), c_width)
+      print str_fill('current document: {}'.format(dispatcher_shared_data.current_doc) , c_width)
       print
       print '-'*c_width
       print 'Indexer processes'
+      header = '{:^5} | {:^16} | {:^20} | {:^9} | {:^9}'.format('PID', 'Progress', 'Document', 'Active DB', 'DB Status')
+      print header
       print '-'*c_width
       for i in range(len(indexer_shared_data_array)):
         dat = indexer_shared_data_array[i]
         done_percentage = 0
         if dat.bundle_size > 0:
           done_percentage = 100*dat.doc_done_count / dat.bundle_size
-        print '#{} [PID {}]'.format(i, dat.pid)
-        print conform_str('   status:           {}'.format(dat.status)                                                     , c_width)
-        print conform_str('   progress:         {:>3} / {:>3} ({:>2}%)'.format(dat.doc_done_count, dat.bundle_size, done_percentage), c_width)
-        print conform_str('   current document: {}'.format(dat.current_doc, c_width)                                       , c_width)
+        print '{:>5} | {:>3} / {:>3} ({:>3}%) | {:>20} | {:^9} | {:^9}'.format(
+        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 20), dat.db_id, dat.db_status)
+      print '-'*c_width
+
     elapsed_time = time.clock() - start_time
     print
     print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
