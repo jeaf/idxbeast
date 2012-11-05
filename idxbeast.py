@@ -15,6 +15,7 @@ import cPickle
 import ctypes
 import datetime
 import getpass
+import glob
 import hashlib
 import itertools
 import logging
@@ -22,6 +23,7 @@ import logging.handlers
 import multiprocessing as mt
 import operator
 import os
+import random
 import sqlite3
 import string
 import struct
@@ -49,7 +51,6 @@ if not os.path.isdir(data_dir):
   os.mkdir(data_dir)
 db_path     = os.path.join(data_dir, 'idxbeast.db')
 db_path_doc = os.path.join(data_dir, 'doc.db')
-db_path_idx = os.path.join(data_dir, 'idx.db')
 
 # Initialize config file, creating it if necessary
 cfg_file = os.path.join(data_dir, u'settings.yaml')
@@ -76,7 +77,7 @@ if not os.path.isfile(cfg_file):
 log = logging.getLogger('idxbeast')
 log.setLevel(logging.DEBUG)
 log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-log_handler   = logging.handlers.RotatingFileHandler(os.path.join(data_dir, 'log.txt'), maxBytes=1024**2, backupCount=5)
+log_handler   = logging.handlers.RotatingFileHandler(os.path.join(data_dir, 'log.txt'), maxBytes=10*1024**2, backupCount=5)
 log_handler.setFormatter(log_formatter)
 log.addHandler(log_handler)
 
@@ -294,19 +295,18 @@ def iteremails(folder_filter):
         traceback.print_exc()
 
 def search(words):
-
-  # Connect to DB
-  conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-  conn_idx = datastore.SqliteTable.connect(db_path_idx, MatchTable)
-
+  
   # Extract the matches for all words
   matches = []
+  conns_idx = [datastore.SqliteTable.connect(p, MatchTable) for p in glob.glob(os.path.join(data_dir, 'idx-*.db'))]
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
-    row = MatchTable.selectone(conn_idx, id=word_hash)
-    if row != None:
-      matches.append(cPickle.loads(bz2.decompress(row.matches)))
-    else:
-      matches.append(dict())
+    cur_dict = dict()
+    for conn_idx in conns_idx:
+      row = MatchTable.selectone(conn_idx, id=word_hash)
+      if row != None:
+        for doc,relevance in cPickle.loads(bz2.decompress(row.matches)).iteritems():
+          cur_dict[doc] = relevance
+    matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
   results = dict()
@@ -318,6 +318,7 @@ def search(words):
   # Resolve the documents
   docs = []
   print 'Resolving documents...'
+  conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   for match,relev in matches:
     rows = DocumentTable.select(conn_doc, id=match)
     for row in rows:
@@ -364,19 +365,19 @@ for dat in indexer_shared_data_array:
   dat.db_id = ''
   dat.db_status = ''
 
-def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx):
+def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx, db_id):
   if len(bundle) == 0:
     return
   for i in itertools.cycle(range(len(worker_procs))):
     if worker_procs[i] and worker_procs[i].is_alive():
       time.sleep(0.01)
     else:
-      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock_doc, db_lock_idx))
+      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id))
       worker_procs[i].start()
       del bundle[:]
       return
 
-def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_doc, db_lock_idx):
+def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
   # Create the worker processes slots
   worker_procs = [None for s in indexer_shared_data_array]
@@ -390,6 +391,11 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
     initial_docs[doc.locator] = doc
     next_doc_id = max(next_doc_id, doc.id)
   next_doc_id += 1
+
+  # Create DB locks
+  db_lock_doc = mt.Lock()
+  db_locks_idx = [mt.Lock() for i in range(cfg.indexer_db_count)]
+  current_idx_db_id = random.randint(0, cfg.indexer_db_count-1)
 
   # List all documents
   dispatcher_shared_data.status = 'Listing documents'
@@ -414,15 +420,17 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
 
       # If we reached the bundle size, dispatch
       if len(updated_docs) >= cfg.doc_bundle_size:
-        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_lock_idx)
+        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
+        current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
         updated_docs = []
         
     except Exception, ex:
-      log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, ex))
+      log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
 
   # Final flush
   if len(updated_docs) >= 0:
-    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_lock_idx)
+    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
+    current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
     updated_docs = []
 
   # At this point we can close the DB connection
@@ -433,7 +441,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array, db_lock_d
   [p.join() for p in worker_procs if p]
   dispatcher_shared_data.status = 'Idle'
 
-def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
+def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
 
   # Index documents
   assert len(bundle) > 0
@@ -455,7 +463,9 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx):
     shared_data_array[i].doc_done_count += 1
 
   # Flush words
-  shared_data_array[i].db_id = 'idx-01'
+  db_id_str = 'idx-{:02d}'.format(db_id)
+  db_path_idx = os.path.join(data_dir, db_id_str + '.db')
+  shared_data_array[i].db_id = db_id_str
   shared_data_array[i].db_status = 'locked'
   with db_lock_idx:
     conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
@@ -641,9 +651,7 @@ def main():
     dispatcher_shared_data.status = 'Starting'
 
     # Launch dispatcher process
-    db_lock_doc = mt.Lock()
-    db_lock_idx = mt.Lock()
-    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array, db_lock_doc, db_lock_idx))
+    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array))
     disp.start()
 
     # Wait for indexing to complete, update status
