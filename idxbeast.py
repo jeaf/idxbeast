@@ -164,7 +164,7 @@ class DocumentTable(datastore.SqliteTable):
   """
   columns = [('id'       , 'INTEGER PRIMARY KEY AUTOINCREMENT'),
              ('mtime'    , 'INTEGER'                          ),
-             ('locator'  , 'TEXT NOT NULL'                    ),
+             ('locator'  , 'TEXT UNIQUE NOT NULL'             ),
              ('title'    , 'TEXT'                             )]
 
 class MatchTable(datastore.SqliteTable):
@@ -223,10 +223,7 @@ class File(Document):
 def iterfiles(rootdir):
   assert os.path.isdir(rootdir), rootdir
   for f, error in util.walkdir(rootdir, maxdepth=9999, listdirs=False, file_filter=is_file_handled, file_wrapper=File):
-    if error != None:
-      log.warning('Cannot process file {}, error: {}'.format(f, error))
-    else:
-      yield f
+    yield f, error
 
 class OutlookEmail(Document):
   """
@@ -353,7 +350,11 @@ class IndexerSharedData(ctypes.Structure):
 
 class DispatcherSharedData(ctypes.Structure):
   _fields_ = [('status'          , ctypes.c_char*40),
-              ('total_listed'    , ctypes.c_int    ),
+              ('listed_count'    , ctypes.c_int    ),
+              ('uptodate_count'  , ctypes.c_int    ),
+              ('outdated_count'  , ctypes.c_int    ),
+              ('new_count'       , ctypes.c_int    ),
+              ('error_count'     , ctypes.c_int    ),
               ('current_doc'     , ctypes.c_char*380)]
 
 # Create shared mem used when indexing. The size of the indexer array
@@ -383,6 +384,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   worker_procs = [None for s in indexer_shared_data_array]
 
   # Read the entire document DB in memory
+  dispatcher_shared_data.status = 'Load initial document list'
   initial_docs = dict()
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   doc_rows = DocumentTable.select(conn)
@@ -398,28 +400,38 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   current_idx_db_id = random.randint(0, cfg.indexer_db_count-1)
 
   # List all documents
-  dispatcher_shared_data.status = 'Listing documents'
   updated_docs   = []
-  chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir))    for rootdir   in cfg.indexed_dirs         )
-  chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder) for em_folder in cfg.indexed_email_folders)
-  chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage) for webpage   in cfg.indexed_urls         )
-  for doc in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
+  chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir)) for rootdir   in cfg.indexed_dirs         )
+  chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in cfg.indexed_email_folders)
+  chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in cfg.indexed_urls         )
+  for doc, error in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
+
+    dispatcher_shared_data.status = 'Listing documents'
     try:
-      dispatcher_shared_data.total_listed += 1
+      dispatcher_shared_data.listed_count += 1
+
+      if error != None:
+        log.warning('Cannot process file {}, error: {}'.format(f, error))
+        dispatcher_shared_data.error_count += 1
+        continue
+
       dispatcher_shared_data.current_doc = doc.title
       init_doc = initial_docs.get(doc.locator)
       if init_doc == None or init_doc.mtime < doc.mtime:
         if init_doc != None:
+          dispatcher_shared_data.outdated_count += 1
           doc.old_id = init_doc.id
+        else:
+          dispatcher_shared_data.new_count += 1
         doc.id = next_doc_id
         next_doc_id += 1
         updated_docs.append(doc)
       else:
-        # todo: count the skipped documents in the dispatcher shared memory
-        pass
+        dispatcher_shared_data.uptodate_count += 1
 
       # If we reached the bundle size, dispatch
       if len(updated_docs) >= cfg.doc_bundle_size:
+        dispatcher_shared_data.status = 'Waiting for free indexer slot'
         dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
         current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
         updated_docs = []
@@ -429,6 +441,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
   # Final flush
   if len(updated_docs) >= 0:
+    dispatcher_shared_data.status = 'Waiting for free indexer slot'
     dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
     current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
     updated_docs = []
@@ -585,12 +598,6 @@ def run_server(conn):
 
 def main():
 
-  # Init DB
-  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-  with conn:
-    conn.execute("CREATE INDEX IF NOT EXISTS locator_idx ON tbl_DocumentTable ('locator')")
-  conn.close()
-
   # Check if config
   if len(sys.argv) > 1 and sys.argv[1] == 'config':
     print 'Configuration file is located at {}, opening default editor...'.format(cfg_file)
@@ -648,23 +655,25 @@ def main():
 
     # Initialize shared mem structures
     # worker process
-    dispatcher_shared_data.status = 'Starting'
+    dsd = dispatcher_shared_data
+    dsd.status = 'Starting'
 
     # Launch dispatcher process
-    disp = mt.Process(target=dispatcher_proc, args=(dispatcher_shared_data, indexer_shared_data_array))
+    disp = mt.Process(target=dispatcher_proc, args=(dsd, indexer_shared_data_array))
     disp.start()
 
     # Wait for indexing to complete, update status
     curpos = cio.getcurpos()
     c_width = cio.get_console_size()[0] - 10
-    while dispatcher_shared_data.status != 'Idle':
+    while dsd.status != 'Idle':
       time.sleep(0.05)
       cio.setcurpos(curpos.x, curpos.y)
       print
       print '-'*c_width
-      print 'status          : {}'.format(str_fill(dispatcher_shared_data.status, c_width-18))
-      print 'documents listed: {}'.format(str_fill(dispatcher_shared_data.total_listed, c_width-18))
-      print 'current document: {}'.format(str_fill(dispatcher_shared_data.current_doc, c_width-18))
+      print 'status  : {}'.format(str_fill(dsd.status, c_width-18))
+      print str_fill('counts  : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
+      dsd.listed_count, dsd.uptodate_count, dsd.outdated_count, dsd.new_count), c_width-18)
+      print 'document: {}'.format(str_fill(dsd.current_doc, c_width-18))
       print
       print '-'*c_width
       header = '{:^5} | {:^18} | {:^55} | {:^6} | {:^8}'.format('PID', 'Progress', 'Document', 'DB', 'DB Status')
