@@ -5,6 +5,28 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
+todo: search should return a ResultSet of LazyDoc instances, to allow getting
+      pages of results, such as page 1/24, 10 results per page. Each LasyDoc
+      instance would contain the doc id, and retrieve the full doc info only
+      when queried.
+todo: add columns to the doc table, e.g., size, from, to, etc.
+todo: use varint for blob encoding for matches for a given word
+todo: use APSW to allow Blob IO
+todo: use Blob IO to append data to blobs (now possible because of using of
+      varint), double size when needed to grow blob
+todo: use multiple index DBs based on the first bits of MD5 instead of
+      randomly dispatching matches to multiples DBs.
+todo: instead of applying all operators to full text (i.e., unidecode,
+      translate, MD5) before splitting and counting frequency, do a two-pass
+      algo:
+        1. split the and count frequency on the raw unicode text
+        2. apply all operators to each unicode word and split/count on the
+           result
+      The idea behind this is to avoid applying all operators to duplicated
+      words. For example, if the text contains the word "the" 50 times, in
+      the current implementation the word will be unidecoded, translated,
+      MD5ed 50 times, while with the new scheme it would only be done once.
+
 Copyright (c) 2012, Francois Jeannotte.
 """
 
