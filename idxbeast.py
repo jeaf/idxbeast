@@ -313,7 +313,6 @@ def search(words):
 
   # Resolve the documents
   docs = []
-  print 'Resolving documents...'
   conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   for match,relev in matches:
     rows = DocumentTable.select(conn_doc, id=match)
