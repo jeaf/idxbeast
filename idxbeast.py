@@ -49,7 +49,6 @@ data_dir = os.path.expanduser(ur'~\.idxbeast')
 assert not os.path.isfile(data_dir)
 if not os.path.isdir(data_dir):
   os.mkdir(data_dir)
-db_path     = os.path.join(data_dir, 'idxbeast.db')
 db_path_doc = os.path.join(data_dir, 'doc.db')
 
 # Initialize config file, creating it if necessary
@@ -623,8 +622,10 @@ def main():
   # Check if search
   if len(sys.argv) == 3 and sys.argv[1] == 'search':
     print 'Executing search...'
-
+    start_time = time.clock()
     docs = search(sys.argv[2])
+    elapsed_time = time.clock() - start_time
+    print '{} documents found in {}.'.format(len(docs), datetime.timedelta(seconds=elapsed_time))
     if docs:
       if len(docs) > 25:
         print
