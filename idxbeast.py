@@ -9,7 +9,8 @@ todo: search should return a ResultSet of LazyDoc instances, to allow getting
       pages of results, such as page 1/24, 10 results per page. Each LasyDoc
       instance would contain the doc id, and retrieve the full doc info only
       when queried.
-todo: add columns to the doc table, e.g., size, from, to, etc.
+todo: ignore one-letter words
+todo: add columns to the doc table, e.g., type of doc (e.g., email, file), size, from, to, etc.
 todo: use varint for blob encoding for matches for a given word
 todo: use APSW to allow Blob IO
 todo: use Blob IO to append data to blobs (now possible because of using of
@@ -333,25 +334,31 @@ def search(words):
     results[doc] = sum(d[doc] for d in matches)
   matches = sorted(results.iteritems(), key=operator.itemgetter(1), reverse=True)
 
-  # Resolve the documents
+  # Construct and return the LazyDocs
   docs = []
   conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   for match,relev in matches:
-    rows = DocumentTable.select(conn_doc, id=match)
-    for row in rows:
-      new_doc = MenuDoc(relev, locator=row.locator, title=row.title)
-      new_doc.id = match
-      docs.append(new_doc)
+    docs.append(LazyDoc(conn_doc, match, relev))
   return docs
 
-class MenuDoc(object):
-  def __init__(self, relev=None, locator=None, title=None):
-    self.relev   = relev
-    self.locator = locator
-    self.title   = title
+class LazyDoc(object):
+  def __init__(self, conn, match, relev=None):
+    self.conn = conn
+    self.id = match
+    self.relev = relev
+  def __getattr__(self, name):
+    if name == 'disp_str' or name == 'locator':
+      self.page_in()
+    if name in self.__dict__:
+      return self.__dict__[name]
+    raise AttributeError('{} has no attribute {}'.format(self, name))  
+  def page_in(self):
+    row = DocumentTable.selectone(self.conn, id=self.id)
+    self.locator = row.locator
+    self.title   = row.title
     if self.title == None:
       self.title = self.locator
-    self.disp_str = u'[{}] {}'.format(relev, self.title)
+    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
   def activate(self):
     if os.path.isfile(self.locator):
       subprocess.Popen(['notepad.exe', self.locator])
@@ -605,7 +612,7 @@ def bottle_idxbeast_api_activate():
   if doc_id:
     row = DocumentTable.selectone(server_conn, id=int(doc_id))
     if row:
-      d = MenuDoc(locator=row.locator)
+      d = LazyDoc(locator=row.locator)
       d.activate()
       return {}
     else:
