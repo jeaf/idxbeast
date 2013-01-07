@@ -9,7 +9,6 @@ todo: search should return a ResultSet of LazyDoc instances, to allow getting
       pages of results, such as page 1/24, 10 results per page. Each LasyDoc
       instance would contain the doc id, and retrieve the full doc info only
       when queried.
-todo: ignore one-letter words
 todo: add columns to the doc table, e.g., type of doc (e.g., email, file), size, from, to, etc.
 todo: use varint for blob encoding for matches for a given word
 todo: use APSW to allow Blob IO
@@ -223,7 +222,7 @@ def is_file_handled(path):
 class Document(object):
   def index(self, words):
     try:
-      for word_hash in (get_word_hash(w) for w in unidecode.unidecode(self.get_text()).translate(translate_table).split()):
+      for word_hash in (get_word_hash(w) for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
         word_entry = words[word_hash]
         word_entry[self.id] = word_entry.get(self.id, 0) + 1
     except Exception, ex:
