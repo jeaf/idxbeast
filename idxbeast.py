@@ -11,16 +11,6 @@ todo: use Blob IO to append data to blobs (now possible because of using of
       varint), double size when needed to grow blob
 todo: use multiple index DBs based on the first bits of MD5 instead of
       randomly dispatching matches to multiples DBs.
-todo: instead of applying all operators to full text (i.e., unidecode,
-      translate, MD5) before splitting and counting frequency, do a two-pass
-      algo:
-        1. split the and count frequency on the raw unicode text
-        2. apply all operators to each unicode word and split/count on the
-           result
-      The idea behind this is to avoid applying all operators to duplicated
-      words. For example, if the text contains the word "the" 50 times, in
-      the current implementation the word will be unidecoded, translated,
-      MD5ed 50 times, while with the new scheme it would only be done once.
 
 Copyright (c) 2012, Francois Jeannotte.
 """
@@ -226,7 +216,7 @@ class Document(object):
   def index(self, words):
     try:
       for word_hash in (get_word_hash(w) for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
-        word_entry = words[word_hash]
+        word_entry = words.setdefault(word_hash, dict())
         word_entry[self.id] = word_entry.get(self.id, 0) + 1
     except Exception, ex:
       print 'Exception while processing {}, exception follows'.format(self)
@@ -511,7 +501,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].current_doc    = ''
   shared_data_array[i].pid            = os.getpid()
   shared_data_array[i].bundle_size    = len(bundle)
-  words = collections.defaultdict(dict)
+  words = dict()
   docs_new          = []
   doc_ids_to_delete = []
   for doc in bundle:
