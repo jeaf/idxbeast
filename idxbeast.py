@@ -9,7 +9,6 @@ todo: search should return a ResultSet of LazyDoc instances, to allow getting
       pages of results, such as page 1/24, 10 results per page. Each LasyDoc
       instance would contain the doc id, and retrieve the full doc info only
       when queried.
-todo: add columns to the doc table, e.g., type of doc (e.g., email, file), size, from, to, etc.
 todo: use varint for blob encoding for matches for a given word
 todo: use APSW to allow Blob IO
 todo: use Blob IO to append data to blobs (now possible because of using of
@@ -65,6 +64,10 @@ import datastore
 datastore.trace_sql = False # Set this to True to trace SQL statements
 import menu
 import util
+
+# Constants
+doctype_file = 1
+doctype_email = 2 
 
 # Initialize data dir, creating it if necessary
 data_dir = os.path.expanduser(ur'~\.idxbeast')
@@ -184,9 +187,13 @@ class DocumentTable(datastore.SqliteTable):
   index for a word.
   """
   columns = [('id'       , 'INTEGER PRIMARY KEY AUTOINCREMENT'),
-             ('mtime'    , 'INTEGER'                          ),
+             ('type_'    , 'INTEGER NOT NULL'                 ),
              ('locator'  , 'TEXT UNIQUE NOT NULL'             ),
-             ('title'    , 'TEXT'                             )]
+             ('mtime'    , 'INTEGER'                          ),
+             ('title'    , 'TEXT'                             ),
+             ('size'     , 'INTEGER'                          ),
+             ('from_'    , 'TEXT'                             ),
+             ('to_'      , 'TEXT'                             )]
 
 class MatchTable(datastore.SqliteTable):
   """
@@ -232,9 +239,13 @@ class Document(object):
 class File(Document):
   def __init__(self, path):
     super(File, self).__init__()
+    self.type_   = doctype_file
     self.locator = os.path.abspath(path)
-    self.title = self.locator
-    self.mtime = os.path.getmtime(self.locator)
+    self.mtime   = os.path.getmtime(self.locator)
+    self.title   = self.locator
+    self.size    = os.path.getsize(self.locator)
+    self.from_   = None
+    self.to_     = None
   def __repr__(self):
     return '<File ' + ' ' + self.locator + '>'
   def get_text(self):
@@ -266,7 +277,7 @@ class OutlookEmail(Document):
       self.update_required = True
       if row != None:
         DocumentTable.delete(id=row.id)
-      self.id = DocumentTable.insert(locator=self.locator, title=self.title)
+      self.id = DocumentTable.insert(type=doctype_email, locator=self.locator, title=self.title, from_=self.from_, to_=self.to_)
   def __repr__(self):
     return '<Email ' + str(self.title) + '>'
   def get_text(self):
@@ -524,12 +535,12 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
 
   # Flush updated docs
   shared_data_array[i].db_id = 'doc'
-  tuples = ((doc.id, doc.mtime, doc.locator) for doc in docs_new)
+  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.from_, doc.to_) for doc in docs_new)
   shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
     shared_data_array[i].db_status = 'writing'
-    DocumentTable.insertmany(conn, cols=['id', 'mtime', 'locator'], tuples=tuples)
+    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'from_', 'to_'], tuples=tuples)
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
