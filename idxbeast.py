@@ -5,10 +5,6 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
-todo: search should return a ResultSet of LazyDoc instances, to allow getting
-      pages of results, such as page 1/24, 10 results per page. Each LasyDoc
-      instance would contain the doc id, and retrieve the full doc info only
-      when queried.
 todo: use varint for blob encoding for matches for a given word
 todo: use APSW to allow Blob IO
 todo: use Blob IO to append data to blobs (now possible because of using of
@@ -323,6 +319,46 @@ def iteremails(folder_filter):
         print 'Exception while processing Outlook folder, information follows'
         traceback.print_exc()
 
+class LazyDoc(object):
+  def __init__(self, conn, match, relev=None):
+    self.conn = conn
+    self.id = match
+    self.relev = relev
+  def __getattr__(self, name):
+    if name == 'disp_str' or name == 'locator':
+      self.page_in()
+    if name in self.__dict__:
+      return self.__dict__[name]
+    raise AttributeError('{} has no attribute {}'.format(self, name))  
+  def page_in(self):
+    row = DocumentTable.selectone(self.conn, id=self.id)
+    self.locator = row.locator
+    self.title   = row.title
+    if self.title == None:
+      self.title = self.locator
+    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
+  def activate(self):
+    if os.path.isfile(self.locator):
+      subprocess.Popen(['notepad.exe', self.locator])
+    else:
+      outlook = win32com.client.Dispatch('Outlook.Application')
+      mapi = outlook.GetNamespace('MAPI')
+      mapi.GetItemFromId(self.locator).Display()
+
+class ResultSet(object):
+  def __init__(self, docs):
+    self.docs = docs
+  def __len__(self):
+    return len(self.docs)
+  def set_page_size(self, size):
+    self.page_size = size
+    self.page_count, r = divmod(len(self.docs), self.page_size)
+    if r != 0:
+      self.page_count += 1
+  def get_page(self, idx):
+    i = idx*self.page_size
+    return self.docs[i:i+self.page_size]
+  
 def search(words):
   
   # Extract the matches for all words
@@ -349,33 +385,7 @@ def search(words):
   conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   for match,relev in matches:
     docs.append(LazyDoc(conn_doc, match, relev))
-  return docs
-
-class LazyDoc(object):
-  def __init__(self, conn, match, relev=None):
-    self.conn = conn
-    self.id = match
-    self.relev = relev
-  def __getattr__(self, name):
-    if name == 'disp_str' or name == 'locator':
-      self.page_in()
-    if name in self.__dict__:
-      return self.__dict__[name]
-    raise AttributeError('{} has no attribute {}'.format(self, name))  
-  def page_in(self):
-    row = DocumentTable.selectone(self.conn, id=self.id)
-    self.locator = row.locator
-    self.title   = row.title
-    if self.title == None:
-      self.title = self.locator
-    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
-  def activate(self):
-    if os.path.isfile(self.locator):
-      subprocess.Popen(['notepad.exe', self.locator])
-    else:
-      outlook = win32com.client.Dispatch('Outlook.Application')
-      mapi = outlook.GetNamespace('MAPI')
-      mapi.GetItemFromId(self.locator).Display()
+  return ResultSet(docs)
 
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('db_id'         , ctypes.c_char*10 ), # e.g., doc, idx-01, idx-02
@@ -609,10 +619,9 @@ def bottle_idxbeast_api_search():
   query_str = bottle.request.query.q
   if query_str:
     docs = search(server_conn, query_str)
+    docs.set_page_size(25)
     docs_list = list()
-    if len(docs) > 25:
-      docs = docs[:25]
-    for doc in docs:
+    for doc in docs.get_page(0):
       docs_list.append({'id': doc.id, 'title': doc.disp_str})
     return {'res': docs_list}
 
@@ -662,16 +671,13 @@ def main():
     print 'Executing search...'
     start_time = time.clock()
     docs = search(sys.argv[2])
+    docs.set_page_size(20)
+    docs_page = docs.get_page(0)
     elapsed_time = time.clock() - start_time
-    print '{} documents found in {}.'.format(len(docs), datetime.timedelta(seconds=elapsed_time))
+    print '\n{} documents found in {}, showing page 0 ({}-{})\n'.format(len(docs), datetime.timedelta(seconds=elapsed_time), 0, len(docs_page)-1)
     if docs:
-      if len(docs) > 25:
-        print
-        print '*** Warning: only showing the 25 most relevant results ***'
-        print
-        docs = docs[:25]
       syncMenu = menu.Menu()
-      for doc in docs:
+      for doc in docs_page:
         syncMenu.addItem(menu.Item(doc.disp_str, toggle=True, actions=' *', obj=doc))
       res = syncMenu.show(sort=True)
       if not res:
