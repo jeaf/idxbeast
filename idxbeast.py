@@ -31,7 +31,6 @@ import multiprocessing as mt
 import operator
 import os
 import random
-import sqlite3
 import string
 import struct
 import subprocess
@@ -526,9 +525,9 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       row = MatchTable.selectone(conn, id=word_hash)
       if row != None:
         matches.update(cPickle.loads(bz2.decompress(row.matches)))
-        tuples_upd.append((sqlite3.Binary(bz2.compress(cPickle.dumps(matches))), word_hash))
+        tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
       else:
-        tuples_new.append((word_hash, sqlite3.Binary(bz2.compress(cPickle.dumps(matches)))))
+        tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches)))))
     MatchTable.insertmany(conn, ['id', 'matches'], tuples_new)
     MatchTable.updatemany(conn, ['matches'], ['id'], tuples_upd)
     conn.close()
