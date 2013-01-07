@@ -257,7 +257,7 @@ class OutlookEmail(Document):
     self.title = subject
     self.mtime = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
     self.update_required = False
-    row = DocumentTable.selectone(locator=self.locator)
+    row = DocumentTable.select(locator=self.locator).fetchone()
     if row == None or row.mtime < self.mtime:
       self.update_required = True
       if row != None:
@@ -320,12 +320,15 @@ class LazyDoc(object):
       return self.__dict__[name]
     raise AttributeError('{} has no attribute {}'.format(self, name))  
   def page_in(self):
-    row = DocumentTable.selectone(self.conn, id=self.id)
-    self.locator = row.locator
-    self.title   = row.title
-    if self.title == None:
-      self.title = self.locator
-    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
+    for locator,title in DocumentTable.select(self.conn, 'locator,title', id=self.id).fetchall():
+      self.locator = locator
+      self.title   = title
+      if self.title == None:
+        self.title = self.locator
+      self.disp_str = u'[{}] {}'.format(self.relev, self.title)
+      break
+    else:
+      log.warning('Cannot page in row data, id={}'.format(self.id))
   def activate(self):
     if os.path.isfile(self.locator):
       subprocess.Popen(['notepad.exe', self.locator])
@@ -356,9 +359,8 @@ def search(words):
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     cur_dict = dict()
     for conn_idx in conns_idx:
-      row = MatchTable.selectone(conn_idx, id=word_hash)
-      if row != None:
-        for doc,relevance in cPickle.loads(bz2.decompress(row.matches)).iteritems():
+      for row_matches, in MatchTable.select(conn_idx, 'matches', id=word_hash):
+        for doc,relevance in cPickle.loads(bz2.decompress(row_matches)).iteritems():
           cur_dict[doc] = relevance
     matches.append(cur_dict)
 
@@ -423,11 +425,10 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   dispatcher_shared_data.status = 'Load initial document list'
   initial_docs = dict()
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-  doc_rows = DocumentTable.select(conn)
   next_doc_id = 0
-  for doc in doc_rows:
-    initial_docs[doc.locator] = doc
-    next_doc_id = max(next_doc_id, doc.id)
+  for id,locator,mtime in DocumentTable.select(conn, 'id,locator,mtime').fetchall():
+    initial_docs[doc.locator] = id,mtime
+    next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
 
   # Create DB locks
@@ -453,10 +454,10 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
       dispatcher_shared_data.current_doc = doc.title
       init_doc = initial_docs.get(doc.locator)
-      if init_doc == None or init_doc.mtime < doc.mtime:
+      if init_doc == None or init_doc[1] < doc.mtime:
         if init_doc != None:
           dispatcher_shared_data.outdated_count += 1
-          doc.old_id = init_doc.id
+          doc.old_id = init_doc[0]
         else:
           dispatcher_shared_data.new_count += 1
         doc.id = next_doc_id
@@ -522,10 +523,10 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     tuples_upd = []
     tuples_new = []
     for word_hash,matches in words.iteritems():
-      row = MatchTable.selectone(conn, id=word_hash)
-      if row != None:
-        matches.update(cPickle.loads(bz2.decompress(row.matches)))
+      for row_matches, in MatchTable.select(conn, 'matches', id=word_hash):
+        matches.update(cPickle.loads(bz2.decompress(row_matches)))
         tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
+        break
       else:
         tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches)))))
     MatchTable.insertmany(conn, ['id', 'matches'], tuples_new)
@@ -573,23 +574,22 @@ def bottle_idxbeast():
   sid = bottle.request.get_cookie('sid')
   print 'sid:', sid
   if sid:
-    authenticated_session = SessionTable.selectone(server_conn, sid=sid)
-    if authenticated_session:
-      print authenticated_session
+    for user, in SessionTable.select(server_conn, 'user', sid=sid).fetchall():
+      print 'User {} authenticated'.format(user)
       return bottle.template('idxbeast.tpl', page='search')
     else:
       user_name = bottle.request.query.user
       user_auth = bottle.request.query.auth
       if user_name and user_auth:
-        user_col = UserTable.selectone(server_conn, name=user_name)
-        if user_col:
-          concat = '{}{}'.format(user_col.pwd_hash, sid)
+        for pwd_hash, in UserTable.select(server_conn, 'pwd_hash', name=user_name).fetchall():
+          concat = '{}{}'.format(pwd_hash, sid)
           computed_user_auth = hashlib.sha1(concat).hexdigest()
           if user_auth == computed_user_auth:
             SessionTable.insert(server_conn, sid=sid, user=user_name)
             return bottle.template('idxbeast.tpl', page='search')
           else:
             print 'Failed login'
+          break
         else:
           print 'Invalid user'
       return bottle.template('idxbeast.tpl', page='login')
@@ -618,13 +618,11 @@ def bottle_idxbeast_api_search():
 def bottle_idxbeast_api_activate():
   doc_id = bottle.request.query.doc_id
   if doc_id:
-    row = DocumentTable.selectone(server_conn, id=int(doc_id))
-    if row:
-      d = LazyDoc(locator=row.locator)
+    for locator, in DocumentTable.select(server_conn, 'locator', id=int(doc_id)).fetchall():
+      d = LazyDoc(locator=locator)
       d.activate()
-      return {}
-    else:
-      return {}
+      break
+    return {}
 
 def run_server(conn):
   global server_conn
