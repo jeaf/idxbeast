@@ -10,6 +10,7 @@ todo: use Blob IO to append data to blobs (now possible because of using of
       varint), double size when needed to grow blob
 todo: use multiple index DBs based on the first bits of MD5 instead of
       randomly dispatching matches to multiples DBs.
+todo: improve ResultSet paging, using LIMIT and OFFSET
 
 Copyright (c) 2012, Francois Jeannotte.
 """
@@ -303,7 +304,7 @@ def iteremails(folder_filter):
       except Exception, ex:
         log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
 
-class LazyDoc(object):
+class MenuDoc(object):
   def __init__(self, locator, relev, title=None):
     self.locator = locator
     self.relev = relev
@@ -322,17 +323,20 @@ class LazyDoc(object):
 class ResultSet(object):
   def __init__(self, matches):
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-    self.cur = DocumentTable.selectmany(conn, 'locator,title', ['id'], ((i,) for i,relev in matches))
+    self.relevs = dict(matches)
+    tuples = [(i,) for i,relev in matches]
+    self.count = sum(1 for x in DocumentTable.selectmany(conn, '1', ['id'], tuples))
+    self.cur = DocumentTable.selectmany(conn, 'id,locator,title', ['id'], tuples)
   def __len__(self):
-    return 10
+    return self.count
   def set_page_size(self, size):
     self.page_size = size
-    #self.page_count, r = divmod(len(self.doc_ids), self.page_size)
-    #if r != 0:
-    #  self.page_count += 1
+    self.page_count, r = divmod(self.count, self.page_size)
+    if r != 0:
+      self.page_count += 1
   def get_page(self, idx):
     i = idx*self.page_size
-    return list(LazyDoc(loc,0,title) for (loc,title) in itertools.islice(self.cur, self.page_size))
+    return list(MenuDoc(loc,self.relevs[id],title) for (id,loc,title) in itertools.islice(self.cur, self.page_size))
   
 def search(words):
   
@@ -600,7 +604,7 @@ def bottle_idxbeast_api_activate():
   doc_id = bottle.request.query.doc_id
   if doc_id:
     for locator, in DocumentTable.select(server_conn, 'locator', id=int(doc_id)):
-      d = LazyDoc(locator=locator)
+      d = MenuDoc(locator=locator)
       d.activate()
       break
     return {}
