@@ -427,7 +427,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   next_doc_id = 0
   for id,locator,mtime in DocumentTable.select(conn, 'id,locator,mtime').fetchall():
-    initial_docs[doc.locator] = id,mtime
+    initial_docs[locator] = id,mtime
     next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
 
