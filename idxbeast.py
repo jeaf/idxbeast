@@ -42,7 +42,7 @@ import unidecode
 import win32com.client
 import yaml
 
-sys.path.append('pysak')
+sys.path.append(os.path.join(os.path.dirname(__file__), 'pysak'))
 import cio
 import datastore
 datastore.trace_sql = False # Set this to True to trace SQL statements
