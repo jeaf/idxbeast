@@ -6,7 +6,6 @@ idxbeast.py - simple content indexer.
 This script implements a simple document indexing application.
 
 todo: use varint for blob encoding for matches for a given word
-todo: use APSW to allow Blob IO
 todo: use Blob IO to append data to blobs (now possible because of using of
       varint), double size when needed to grow blob
 todo: use multiple index DBs based on the first bits of MD5 instead of
