@@ -222,7 +222,6 @@ class Document(object):
 
 class File(Document):
   def __init__(self, path):
-    super(File, self).__init__()
     self.type_   = doctype_file
     self.locator = os.path.abspath(path)
     self.mtime   = os.path.getmtime(self.locator)
@@ -247,25 +246,21 @@ class OutlookEmail(Document):
   objects can be found at
   http://msdn.microsoft.com/en-us/library/aa210946(v=office.11).aspx
   """
-  def __init__(self, entry_id, mapi, from_, to_, subject, rt):
-    super(OutlookEmail, self).__init__()
+  def __init__(self, entry_id, mapi, from_, to_, size, subject, rt):
+    self.type_   = doctype_email
     self.locator = entry_id
-    self.mapi = mapi
-    self.from_ = from_
-    self.to_ = to_
-    self.title = subject
-    self.mtime = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
-    self.update_required = False
-    row = DocumentTable.select(locator=self.locator).fetchone()
-    if row == None or row.mtime < self.mtime:
-      self.update_required = True
-      if row != None:
-        DocumentTable.delete(id=row.id)
-      self.id = DocumentTable.insert(type=doctype_email, locator=self.locator, title=self.title, from_=self.from_, to_=self.to_)
+    self.mtime   = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
+    self.title   = subject
+    self.size    = int(size)
+    self.from_   = from_
+    self.to_     = to_
+    #self.mapi    = mapi
   def __repr__(self):
     return '<Email ' + str(self.title) + '>'
   def get_text(self):
-    mail_item = self.mapi.GetItemFromId(self.locator)
+    outlook = win32com.client.Dispatch('Outlook.Application')
+    mapi = outlook.GetNamespace('MAPI')
+    mail_item = mapi.GetItemFromId(self.locator)
     f = ''
     if self.from_:
       f = self.from_
@@ -289,45 +284,33 @@ def iteremails(folder_filter):
         table.Columns.Add('To')
         table.Columns.Add('CC')
         table.Columns.Add('BCC')
+        table.Columns.Add('Size')
         table.Columns.Add('Subject')
         table.Columns.Add('ReceivedTime')
         while not table.EndOfTable:
           try:
             row = table.GetNextRow()
-            yield OutlookEmail(row['EntryId'],
-                               mapi,
-                               row['SenderName'],
-                               ' '.join((row['To'], row['CC'], row['BCC'])),
-                               row['Subject'],
-                               row['ReceivedTime'])
+            oe = OutlookEmail(row['EntryId'],
+                              mapi,
+                              row['SenderName'],
+                              ' '.join((row['To'], row['CC'], row['BCC'])),
+                              row['Size'],
+                              row['Subject'],
+                              row['ReceivedTime'])
+            yield oe, None
           except Exception, ex:
-            print 'Exception while processing Outlook item, information follows'
-            traceback.print_exc()
+            yield None, ex
       except Exception, ex:
-        print 'Exception while processing Outlook folder, information follows'
-        traceback.print_exc()
+        log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
 
 class LazyDoc(object):
-  def __init__(self, conn, match, relev=None):
-    self.conn = conn
-    self.id = match
+  def __init__(self, locator, relev, title=None):
+    self.locator = locator
     self.relev = relev
-  def __getattr__(self, name):
-    if name == 'disp_str' or name == 'locator':
-      self.page_in()
-    if name in self.__dict__:
-      return self.__dict__[name]
-    raise AttributeError('{} has no attribute {}'.format(self, name))  
-  def page_in(self):
-    for locator,title in DocumentTable.select(self.conn, 'locator,title', id=self.id).fetchall():
-      self.locator = locator
-      self.title   = title
-      if self.title == None:
-        self.title = self.locator
-      self.disp_str = u'[{}] {}'.format(self.relev, self.title)
-      break
-    else:
-      log.warning('Cannot page in row data, id={}'.format(self.id))
+    self.title = title
+    if self.title == None:
+      self.title = self.locator
+    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
   def activate(self):
     if os.path.isfile(self.locator):
       subprocess.Popen(['notepad.exe', self.locator])
@@ -337,18 +320,19 @@ class LazyDoc(object):
       mapi.GetItemFromId(self.locator).Display()
 
 class ResultSet(object):
-  def __init__(self, docs):
-    self.docs = docs
+  def __init__(self, matches):
+    conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+    self.cur = DocumentTable.selectmany(conn, 'locator,title', ['id'], ((i,) for i,relev in matches))
   def __len__(self):
-    return len(self.docs)
+    return 10
   def set_page_size(self, size):
     self.page_size = size
-    self.page_count, r = divmod(len(self.docs), self.page_size)
-    if r != 0:
-      self.page_count += 1
+    #self.page_count, r = divmod(len(self.doc_ids), self.page_size)
+    #if r != 0:
+    #  self.page_count += 1
   def get_page(self, idx):
     i = idx*self.page_size
-    return self.docs[i:i+self.page_size]
+    return list(LazyDoc(loc,0,title) for (loc,title) in itertools.islice(self.cur, self.page_size))
   
 def search(words):
   
@@ -370,12 +354,8 @@ def search(words):
     results[doc] = sum(d[doc] for d in matches)
   matches = sorted(results.iteritems(), key=operator.itemgetter(1), reverse=True)
 
-  # Construct and return the LazyDocs
-  docs = []
-  conn_doc = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-  for match,relev in matches:
-    docs.append(LazyDoc(conn_doc, match, relev))
-  return ResultSet(docs)
+  # Construct and return the ResultSet
+  return ResultSet(matches)
 
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('db_id'         , ctypes.c_char*10 ), # e.g., doc, idx-01, idx-02
@@ -425,7 +405,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   initial_docs = dict()
   conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
   next_doc_id = 0
-  for id,locator,mtime in DocumentTable.select(conn, 'id,locator,mtime').fetchall():
+  for id,locator,mtime in DocumentTable.select(conn, 'id,locator,mtime'):
     initial_docs[locator] = id,mtime
     next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
@@ -539,11 +519,13 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
     shared_data_array[i].db_status = 'writing'
-    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'from_', 'to_'], tuples=tuples)
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
       DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
+
+    # Insert new/updated documents
+    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'from_', 'to_'], tuples=tuples)
 
     conn.close()
 
@@ -573,14 +555,14 @@ def bottle_idxbeast():
   sid = bottle.request.get_cookie('sid')
   print 'sid:', sid
   if sid:
-    for user, in SessionTable.select(server_conn, 'user', sid=sid).fetchall():
+    for user, in SessionTable.select(server_conn, 'user', sid=sid):
       print 'User {} authenticated'.format(user)
       return bottle.template('idxbeast.tpl', page='search')
     else:
       user_name = bottle.request.query.user
       user_auth = bottle.request.query.auth
       if user_name and user_auth:
-        for pwd_hash, in UserTable.select(server_conn, 'pwd_hash', name=user_name).fetchall():
+        for pwd_hash, in UserTable.select(server_conn, 'pwd_hash', name=user_name):
           concat = '{}{}'.format(pwd_hash, sid)
           computed_user_auth = hashlib.sha1(concat).hexdigest()
           if user_auth == computed_user_auth:
@@ -617,7 +599,7 @@ def bottle_idxbeast_api_search():
 def bottle_idxbeast_api_activate():
   doc_id = bottle.request.query.doc_id
   if doc_id:
-    for locator, in DocumentTable.select(server_conn, 'locator', id=int(doc_id)).fetchall():
+    for locator, in DocumentTable.select(server_conn, 'locator', id=int(doc_id)):
       d = LazyDoc(locator=locator)
       d.activate()
       break
