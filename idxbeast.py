@@ -362,8 +362,10 @@ def search(words):
     cur_dict = dict()
     for conn_idx in conns_idx:
       for matches_blob, in MatchTable.select(conn_idx, 'matches_blob', id=word_hash):
-        for doc,cnt,avg_idx in cPickle.loads(bz2.decompress(matches_blob)):
-          cur_dict[doc] = cnt
+        int_list = cPickle.loads(bz2.decompress(matches_blob))
+        assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+        for i in range(0, len(int_list), 3):
+          cur_dict[int_list[i]] = int_list[i+1]
     matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
@@ -510,7 +512,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     doc.word_cnt = 0
     doc.unique_word_cnt = 0
     for w,cnt,avg_idx in doc.index():
-      words[w].append((doc.id,cnt,avg_idx))
+      words[w].extend((doc.id,cnt,avg_idx))
       doc.word_cnt += cnt
       doc.unique_word_cnt += 1
     shared_data_array[i].doc_done_count += 1
