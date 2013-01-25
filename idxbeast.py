@@ -178,14 +178,16 @@ class DocumentTable(datastore.SqliteTable):
   documents are deleted from the DB, but their id may still be inside the
   index for a word.
   """
-  columns = [('id'       , 'INTEGER PRIMARY KEY AUTOINCREMENT'),
-             ('type_'    , 'INTEGER NOT NULL'                 ),
-             ('locator'  , 'TEXT UNIQUE NOT NULL'             ),
-             ('mtime'    , 'INTEGER'                          ),
-             ('title'    , 'TEXT'                             ),
-             ('size'     , 'INTEGER'                          ),
-             ('from_'    , 'TEXT'                             ),
-             ('to_'      , 'TEXT'                             )]
+  columns = [('id'             , 'INTEGER PRIMARY KEY AUTOINCREMENT'),
+             ('type_'          , 'INTEGER NOT NULL'                 ),
+             ('locator'        , 'TEXT UNIQUE NOT NULL'             ),
+             ('mtime'          , 'INTEGER'                          ),
+             ('title'          , 'TEXT'                             ),
+             ('size'           , 'INTEGER'                          ),
+             ('word_cnt'       , 'INTEGER NOT NULL'                 ),
+             ('unique_word_cnt', 'INTEGER NOT NULL'                 ),
+             ('from_'          , 'TEXT'                             ),
+             ('to_'            , 'TEXT'                             )]
 
 class MatchTable(datastore.SqliteTable):
   """
@@ -219,14 +221,15 @@ def is_file_handled(path):
   return ext in supported_extensions
 
 class Document(object):
-  def index(self, words):
+  def index(self):
     try:
-      for word_hash in (get_word_hash(w) for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
-        word_entry = words.setdefault(word_hash, dict())
-        word_entry[self.id] = word_entry.get(self.id, 0) + 1
+      words = collections.defaultdict(list)
+      for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
+        words[w].append(i)
+      return [(get_word_hash(w), len(lst), sum(lst)/len(lst)) for w,lst in words.iteritems()]
     except Exception, ex:
-      print 'Exception while processing {}, exception follows'.format(self)
-      traceback.print_exc()
+      log.warning('Exception while processing {}, exception: {}'.format(self, ex))
+      return 0, dict()
 
 class File(Document):
   def __init__(self, path):
@@ -354,8 +357,8 @@ def search(words):
     cur_dict = dict()
     for conn_idx in conns_idx:
       for row_matches, in MatchTable.select(conn_idx, 'matches', id=word_hash):
-        for doc,relevance in cPickle.loads(bz2.decompress(row_matches)).iteritems():
-          cur_dict[doc] = relevance
+        for doc,cnt,avg_idx in cPickle.loads(bz2.decompress(row_matches)):
+          cur_dict[doc] = cnt
     matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
@@ -491,7 +494,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].current_doc    = ''
   shared_data_array[i].pid            = os.getpid()
   shared_data_array[i].bundle_size    = len(bundle)
-  words = dict()
+  words = collections.defaultdict(list)
   docs_new          = []
   doc_ids_to_delete = []
   for doc in bundle:
@@ -499,7 +502,12 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     docs_new.append(doc)
     if hasattr(doc, 'old_id'):
       doc_ids_to_delete.append((doc.old_id,))
-    doc.index(words)
+    doc.word_cnt = 0
+    doc.unique_word_cnt = 0
+    for w,cnt,avg_idx in doc.index():
+      words[w].append((doc.id,cnt,avg_idx))
+      doc.word_cnt += cnt
+      doc.unique_word_cnt += 1
     shared_data_array[i].doc_done_count += 1
 
   # Flush words
@@ -514,7 +522,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     tuples_new = []
     for word_hash,matches in words.iteritems():
       for row_matches, in MatchTable.select(conn, 'matches', id=word_hash):
-        matches.update(cPickle.loads(bz2.decompress(row_matches)))
+        matches.extend(cPickle.loads(bz2.decompress(row_matches)))
         tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
         break
       else:
@@ -525,7 +533,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
 
   # Flush updated docs
   shared_data_array[i].db_id = 'doc'
-  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.from_, doc.to_) for doc in docs_new)
+  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
   shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
@@ -536,7 +544,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
 
     # Insert new/updated documents
-    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'from_', 'to_'], tuples=tuples)
+    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'word_cnt', 'unique_word_cnt', 'from_', 'to_'], tuples=tuples)
 
     conn.close()
 
