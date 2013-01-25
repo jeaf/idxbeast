@@ -191,13 +191,18 @@ class DocumentTable(datastore.SqliteTable):
 
 class MatchTable(datastore.SqliteTable):
   """
-  id     : the id is the truncated MD5 of the flattened (été -> ete) word.
-  matches: a pickled/bz2 dict laid out as follows:
-             - doc_id1: relev
-             - doc_id2: relev
+  id          : the id is the truncated MD5 of the flattened (été -> ete) word.
+  matches_blob: A list of encoded integer groups, one group for each match.
+                Each group contains the following integers:
+                 - document id
+                 - word count
+                 - average index
+  actual_size : the actual used size of the blob, not necessarily equal to
+                the blob's real size.
   """
-  columns = [('id'     , 'INTEGER PRIMARY KEY'),
-             ('matches', 'BLOB NOT NULL'      )]
+  columns = [('id'          , 'INTEGER PRIMARY KEY'),
+             ('matches_blob', 'BLOB NOT NULL'      ),
+             ('actual_size' , 'INTEGER NOT NULL'   )]
 
 class SessionTable(datastore.SqliteTable):
   """
@@ -356,8 +361,8 @@ def search(words):
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     cur_dict = dict()
     for conn_idx in conns_idx:
-      for row_matches, in MatchTable.select(conn_idx, 'matches', id=word_hash):
-        for doc,cnt,avg_idx in cPickle.loads(bz2.decompress(row_matches)):
+      for matches_blob, in MatchTable.select(conn_idx, 'matches_blob', id=word_hash):
+        for doc,cnt,avg_idx in cPickle.loads(bz2.decompress(matches_blob)):
           cur_dict[doc] = cnt
     matches.append(cur_dict)
 
@@ -521,14 +526,14 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     tuples_upd = []
     tuples_new = []
     for word_hash,matches in words.iteritems():
-      for row_matches, in MatchTable.select(conn, 'matches', id=word_hash):
-        matches.extend(cPickle.loads(bz2.decompress(row_matches)))
+      for matches_blob, in MatchTable.select(conn, 'matches_blob', id=word_hash):
+        matches.extend(cPickle.loads(bz2.decompress(matches_blob)))
         tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
         break
       else:
-        tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches)))))
-    MatchTable.insertmany(conn, ['id', 'matches'], tuples_new)
-    MatchTable.updatemany(conn, ['matches'], ['id'], tuples_upd)
+        tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches))), 0))
+    MatchTable.insertmany(conn, ['id', 'matches_blob', 'actual_size'], tuples_new)
+    MatchTable.updatemany(conn, ['matches_blob'], ['id'], tuples_upd)
     conn.close()
 
   # Flush updated docs
