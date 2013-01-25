@@ -107,9 +107,13 @@ class cfg(object):
 
 def str_fill(s, length):
   """
-  Truncates a string to the given length, e.g.,
-  str_fill('abcdefghijklmnopqrstuvwxyz', 15) -> 'abcdef...jklmno'
-  str_fill('abcdef', 15)                     -> 'abcdef         '
+  Truncates a string to the given length, using an ellipsis (...) in the
+  middle if necessary.
+
+  >>> str_fill('abcdefghijklmnopqrstuvwxyz', 15)
+  'abcdef...uvwxyz'
+  >>> str_fill('abcdef', 15)
+  'abcdef         '
   """
   assert length > 0
   s = str(s)
@@ -144,6 +148,9 @@ word_hash_cache = dict()
 def get_word_hash(word):
   """
   Create a 60 bit hash for a given word.
+
+  >>> get_word_hash('abc')
+  180110074134370006L
   """
   if len(word_hash_cache) > cfg.word_hash_cache_size:
     word_hash_cache.clear()
