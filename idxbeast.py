@@ -66,6 +66,15 @@ def varint_enc(int_list):
   'ac02'
   >>> h(varint_enc([300, 300, 300, 3, 0]))
   'ac02ac02ac020300'
+  >>> lst = [i for i in range(0, 5000)]
+  >>> len(varint_enc(lst))
+  9872
+  >>> len(cPickle.dumps(lst, protocol=2))
+  14760
+  >>> len(bz2.compress(cPickle.dumps(lst, protocol=2)))
+  2742
+  >>> len(bz2.compress(varint_enc(lst)))
+  1863
   """
   b = bytearray()
   for i in int_list:
@@ -81,15 +90,29 @@ def varint_enc(int_list):
 
 def varint_dec(buf):  
   """
-  Decode a binary buffer into an integer list.
+  Decode provided binary buffer into list of integers, using the varint
+  encoding.
 
-  >>> from binascii import unhexlify as uh
-  >>> uh(varint_dec(varint_enc([300])))
-  300
+  >>> varint_dec(varint_enc([3]))
+  [3]
+  >>> varint_dec(varint_enc([300]))
+  [300]
+  >>> varint_dec(varint_enc([300,4]))
+  [300, 4]
+  >>> varint_dec(varint_enc([300, 99239934294392243432234, 1]))
+  [300, 99239934294392243432234L, 1]
   """
   int_list = []
+  num      = 0
+  i        = 0
   for b in buf:
-    pass
+    num |= (b & 0x7f) << i*7
+    if b & 0x80: # Continuation bit is set
+      i += 1
+    else:
+      int_list.append(num)
+      num = 0
+      i   = 0
   return int_list
 
 # Constants
