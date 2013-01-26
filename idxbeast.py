@@ -50,6 +50,48 @@ datastore.trace_sql = False # Set this to True to trace SQL statements
 import menu
 import util
 
+def varint_enc(int_list):
+  """
+  Encode an iterable of integers using an encoding similar to Google Protocol
+  Buffer 'varint'.
+
+  >>> from binascii import hexlify as h
+  >>> h(varint_enc([]))
+  ''
+  >>> h(varint_enc([0]))
+  '00'
+  >>> h(varint_enc([3]))
+  '03'
+  >>> h(varint_enc([300]))
+  'ac02'
+  >>> h(varint_enc([300, 300, 300, 3, 0]))
+  'ac02ac02ac020300'
+  """
+  b = bytearray()
+  for i in int_list:
+    assert i >= 0
+    if i == 0:
+      b.append(0)
+    else:
+      while i > 0:
+        b.append(i & 0x7f | 0x80)
+        i >>= 7
+      b[-1] &= 0x7f
+  return b
+
+def varint_dec(buf):  
+  """
+  Decode a binary buffer into an integer list.
+
+  >>> from binascii import unhexlify as uh
+  >>> uh(varint_dec(varint_enc([300])))
+  300
+  """
+  int_list = []
+  for b in buf:
+    pass
+  return int_list
+
 # Constants
 doctype_file = 1
 doctype_email = 2 
