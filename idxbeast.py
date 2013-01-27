@@ -269,12 +269,13 @@ class MatchTable(datastore.SqliteTable):
                  - document id
                  - word count
                  - average index
-  actual_size : the actual used size of the blob, not necessarily equal to
-                the blob's real size.
+  size        : the size of the matches buffer
+  capacity    : the real size of the blob
   """
   columns = [('id'          , 'INTEGER PRIMARY KEY'),
              ('matches_blob', 'BLOB NOT NULL'      ),
-             ('actual_size' , 'INTEGER NOT NULL'   )]
+             ('size'        , 'INTEGER NOT NULL'   ),
+             ('capacity'    , 'INTEGER NOT NULL'   )]
 
 class SessionTable(datastore.SqliteTable):
   """
@@ -599,12 +600,22 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     shared_data_array[i].db_status = 'writing'
     tuples_upd = []
     tuples_new = []
+    tuples_len = []
     for word_hash,matches in words.iteritems():
     
       # todo: implement proper binary encoding using blob io
-      #for rowid, in MatchTable.select(conn, 'id', id=word_hash):
-      #  conn.blobopen()
-
+      #encoded_matches = varint_enc(matches)
+      #for size,capacity in MatchTable.select(conn, 'size,capacity', id=word_hash):
+      #  req_len = size + len(encoded_matches)
+      #  with conn.blobopen('main') as blob:
+      #    if req_len <= capacity:
+      #      blob.write(offset=size, encoded_matches)
+      #      tuples_len.append((req_len, word_hash))
+      #    else:
+      #      tuples_upd.append((blob.read(size) + encoded_matches + bytearray(2*req_len), req_len, 3*req_len))
+      #  break
+      #else:
+      #  tuples_new.append((word_hash, encoded_matches, len(encoded_matches), len(encoded_matches)))
 
       for matches_blob, in MatchTable.select(conn, 'matches_blob', id=word_hash):
         matches.extend(cPickle.loads(bz2.decompress(matches_blob)))
@@ -612,8 +623,9 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
         break
       else:
         tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches))), 0))
-    MatchTable.insertmany(conn, ['id', 'matches_blob', 'actual_size'], tuples_new)
-    MatchTable.updatemany(conn, ['matches_blob'], ['id'], tuples_upd)
+    MatchTable.insertmany(conn, ['id', 'matches_blob', 'size', 'capacity'], tuples_new)
+    MatchTable.updatemany(conn, ['matches_blob', 'size', 'capacity'], ['id'], tuples_upd)
+    MatchTable.updatemany(conn, ['size'], ['id'], tuples_len)
     conn.close()
 
   # Flush updated docs
