@@ -66,15 +66,22 @@ def varint_enc(int_list):
   'ac02'
   >>> h(varint_enc([300, 300, 300, 3, 0]))
   'ac02ac02ac020300'
-  >>> lst = [i for i in range(0, 5000)]
+
+  The following examples give an idea of the size differences between pickling
+  and varint encoding (both with and without compression) for a short
+  sequence of integers.
+
+  >>> lst = [987,567,19823649185,12345134,3,4,5,99,1,0,123123,2,3,234987987352,3245,23,2,42,5,5,54353,34,35,345,53,452]
+  >>> lst.extend([4,1,2,3,123123,123,399999,12,333333333,3,23,1,23,12,345,6,567,8,8,9,76,3,45,234,234,345,45,6765,78])
+  >>> lst.extend([987,234234,234,4654,67,75,87,8,9,9,78790,345,345,243,2342,123,342,433,453,4564,56,567,56,75,67])
   >>> len(varint_enc(lst))
-  9872
-  >>> len(cPickle.dumps(lst, protocol=2))
-  14760
-  >>> len(bz2.compress(cPickle.dumps(lst, protocol=2)))
-  2742
+  131
   >>> len(bz2.compress(varint_enc(lst)))
-  1863
+  194
+  >>> len(cPickle.dumps(lst, protocol=2))
+  219
+  >>> len(bz2.compress(cPickle.dumps(lst, protocol=2)))
+  259
   """
   b = bytearray()
   for i in int_list:
@@ -593,6 +600,12 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     tuples_upd = []
     tuples_new = []
     for word_hash,matches in words.iteritems():
+    
+      # todo: implement proper binary encoding using blob io
+      #for rowid, in MatchTable.select(conn, 'id', id=word_hash):
+      #  conn.blobopen()
+
+
       for matches_blob, in MatchTable.select(conn, 'matches_blob', id=word_hash):
         matches.extend(cPickle.loads(bz2.decompress(matches_blob)))
         tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
