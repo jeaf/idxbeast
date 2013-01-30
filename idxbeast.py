@@ -430,11 +430,16 @@ def search(words):
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     cur_dict = dict()
     for conn_idx in conns_idx:
-      for matches_blob, in MatchTable.select(conn_idx, 'matches_blob', id=word_hash):
-        int_list = varint_dec(matches_blob)
-        assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
-        for i in range(0, len(int_list), 3):
-          cur_dict[int_list[i]] = int_list[i+1]
+
+      if MatchTable.exists(conn_idx, id=word_hash):
+        with conn_idx.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
+          size, = struct.unpack('I', blob.read(4))
+          buf = bytearray(size)
+          blob.readinto(buf, 0, size)
+          int_list = varint_dec(buf)
+          assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+          for i in range(0, len(int_list), 3):
+            cur_dict[int_list[i]] = int_list[i+1]
     matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
