@@ -432,7 +432,7 @@ def search(words):
     for conn_idx in conns_idx:
 
       if MatchTable.exists(conn_idx, id=word_hash):
-        with conn_idx.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
+        with conn_idx.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, False) as blob:
           size, = struct.unpack('I', blob.read(4))
           buf = bytearray(size)
           blob.readinto(buf, 0, size)
@@ -604,7 +604,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     for word_hash,matches in words.iteritems():
       encoded_matches = varint_enc(matches)
       if MatchTable.exists(conn, id=word_hash):
-        with conn.blobopen('main', 'MatchTable_tbl', 'matches_blob', word_hash, True) as blob:
+        with conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
           old_size, = struct.unpack('I', blob.read(4))
           new_size  = old_size + len(encoded_matches)
           if 4 + new_size <= blob.length():
@@ -614,7 +614,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
             blob.write(encoded_matches)
           else:
             buf = bytearray(3 * (4 + new_size))
-            struck.pack_into('I', buf, 0, new_size)
+            struct.pack_into('I', buf, 0, new_size)
             blob.readinto(buf, 4, old_size)
             memoryview(buf)[4 + old_size: 4 + new_size] = encoded_matches
             tuples_upd.append((buf, word_hash))
