@@ -431,7 +431,7 @@ def search(words):
     cur_dict = dict()
     for conn_idx in conns_idx:
       for matches_blob, in MatchTable.select(conn_idx, 'matches_blob', id=word_hash):
-        int_list = cPickle.loads(bz2.decompress(matches_blob))
+        int_list = varint_dec(matches_blob)
         assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
         for i in range(0, len(int_list), 3):
           cur_dict[int_list[i]] = int_list[i+1]
@@ -605,23 +605,16 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
           if 4 + new_size <= blob.length():
             blob.seek(0)
             blob.write(struct.pack('I', new_size))
-            blob.seek(old_size)
+            blob.seek(4 + old_size)
             blob.write(encoded_matches)
           else:
-            buf = bytearray(2 * (4 + new_size))
+            buf = bytearray(3 * (4 + new_size))
             struck.pack_into('I', buf, 0, new_size)
             blob.readinto(buf, 4, old_size)
-            memoryview(buf)[4 + old_size: 4 + old_size + new_size] = encoded_matches
+            memoryview(buf)[4 + old_size: 4 + new_size] = encoded_matches
             tuples_upd.append((buf, word_hash))
       else:
-        tuples_new.append((word_hash, struct.pack('I', 4 + len(encoded_matches)) + encoded_matches)
-
-      #for matches_blob, in MatchTable.select(conn, 'matches_blob', id=word_hash):
-      #  matches.extend(cPickle.loads(bz2.decompress(matches_blob)))
-      #  tuples_upd.append((buffer(bz2.compress(cPickle.dumps(matches))), word_hash))
-      #  break
-      #else:
-      #  tuples_new.append((word_hash, buffer(bz2.compress(cPickle.dumps(matches))), 0))
+        tuples_new.append((word_hash, struct.pack('I', len(encoded_matches)) + encoded_matches))
 
     MatchTable.insertmany(conn, ['id', 'matches_blob']  , tuples_new)
     MatchTable.updatemany(conn, ['matches_blob'], ['id'], tuples_upd)
