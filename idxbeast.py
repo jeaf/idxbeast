@@ -598,29 +598,43 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].db_status = 'locked'
   with db_lock_idx:
     conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
+
+    # Encode matches
     shared_data_array[i].db_status = 'encoding'
-    enc_matches_tuples = [(word_hash, varint_enc(matches_list)) for word_hash, matches_list in words.iteritems()]
+    for wh, matches_list in words.iteritems():
+      words[wh] = varint_enc(matches_list)
+
+    # Figure out which word_hash are present in the DB, and which are not
+    shared_data_array[i].db_status = 'split'
+    wh_in_db = set(MatchTable.selectmany(conn, 'id', ['id'], [(wh,) for wh in words.iterkeys()]))
+    wh_new   = set(words.keys()).difference(wh_in_db)
+
+    # Create the new tuples for new words
+    shared_data_array[i].db_status = 'new'
+    tuples_new = []
+    for wh in wh_new:
+      enc_matches = words[wh]
+      tuples_new.append((wh, struct.pack('I', len(enc_matches)) + enc_matches))
+
+    # Process existing words
     shared_data_array[i].db_status = 'blob I/O'
     tuples_upd = []
-    tuples_new = []
-    for word_hash, enc_matches in enc_matches_tuples:
-      if MatchTable.exists(conn, id=word_hash):
-        with conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
-          old_size, = struct.unpack('I', blob.read(4))
-          new_size  = old_size + len(enc_matches)
-          if 4 + new_size <= blob.length():
-            blob.seek(0)
-            blob.write(struct.pack('I', new_size))
-            blob.seek(4 + old_size)
-            blob.write(enc_matches)
-          else:
-            buf = bytearray(3 * (4 + new_size))
-            struct.pack_into('I', buf, 0, new_size)
-            blob.readinto(buf, 4, old_size)
-            memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
-            tuples_upd.append((buf, word_hash))
-      else:
-        tuples_new.append((word_hash, struct.pack('I', len(enc_matches)) + enc_matches))
+    for word_hash in wh_in_db:
+      enc_matches = words[word_hash]
+      with conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
+        old_size, = struct.unpack('I', blob.read(4))
+        new_size  = old_size + len(enc_matches)
+        if 4 + new_size <= blob.length():
+          blob.seek(0)
+          blob.write(struct.pack('I', new_size))
+          blob.seek(4 + old_size)
+          blob.write(enc_matches)
+        else:
+          buf = bytearray(3 * (4 + new_size))
+          struct.pack_into('I', buf, 0, new_size)
+          blob.readinto(buf, 4, old_size)
+          memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
+          tuples_upd.append((buf, word_hash))
 
     shared_data_array[i].db_status = 'insert'
     MatchTable.insertmany(conn, ['id', 'matches_blob']  , tuples_new)
