@@ -310,7 +310,7 @@ class File(Document):
     self.type_   = doctype_file
     self.locator = os.path.abspath(path)
     self.mtime   = os.path.getmtime(self.locator)
-    self.title   = self.locator
+    self.title   = None
     self.size    = os.path.getsize(self.locator)
     self.from_   = None
     self.to_     = None
@@ -526,7 +526,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
         dispatcher_shared_data.error_count += 1
         continue
 
-      dispatcher_shared_data.current_doc = doc.title
+      dispatcher_shared_data.current_doc = doc.title if doc.title else doc.locator
       init_doc = initial_docs.get(doc.locator)
       if init_doc == None or init_doc[1] < doc.mtime:
         if init_doc != None:
@@ -579,7 +579,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   docs_new          = []
   doc_ids_to_delete = []
   for doc in bundle:
-    shared_data_array[i].current_doc = doc.title
+    shared_data_array[i].current_doc = doc.title if doc.title else doc.locator
     docs_new.append(doc)
     if hasattr(doc, 'old_id'):
       doc_ids_to_delete.append((doc.old_id,))
@@ -598,30 +598,33 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].db_status = 'locked'
   with db_lock_idx:
     conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
-    shared_data_array[i].db_status = 'writing'
+    shared_data_array[i].db_status = 'encoding'
+    enc_matches_tuples = [(word_hash, varint_enc(matches_list)) for word_hash, matches_list in words.iteritems()]
+    shared_data_array[i].db_status = 'blob I/O'
     tuples_upd = []
     tuples_new = []
-    for word_hash,matches in words.iteritems():
-      encoded_matches = varint_enc(matches)
+    for word_hash, enc_matches in enc_matches_tuples:
       if MatchTable.exists(conn, id=word_hash):
         with conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
           old_size, = struct.unpack('I', blob.read(4))
-          new_size  = old_size + len(encoded_matches)
+          new_size  = old_size + len(enc_matches)
           if 4 + new_size <= blob.length():
             blob.seek(0)
             blob.write(struct.pack('I', new_size))
             blob.seek(4 + old_size)
-            blob.write(encoded_matches)
+            blob.write(enc_matches)
           else:
             buf = bytearray(3 * (4 + new_size))
             struct.pack_into('I', buf, 0, new_size)
             blob.readinto(buf, 4, old_size)
-            memoryview(buf)[4 + old_size: 4 + new_size] = encoded_matches
+            memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
             tuples_upd.append((buf, word_hash))
       else:
-        tuples_new.append((word_hash, struct.pack('I', len(encoded_matches)) + encoded_matches))
+        tuples_new.append((word_hash, struct.pack('I', len(enc_matches)) + enc_matches))
 
+    shared_data_array[i].db_status = 'insert'
     MatchTable.insertmany(conn, ['id', 'matches_blob']  , tuples_new)
+    shared_data_array[i].db_status = 'update'
     MatchTable.updatemany(conn, ['matches_blob'], ['id'], tuples_upd)
     conn.close()
 
@@ -631,7 +634,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-    shared_data_array[i].db_status = 'writing'
+    shared_data_array[i].db_status = 'doc upd'
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
