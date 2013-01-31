@@ -15,6 +15,7 @@ todo: improve ResultSet paging, using LIMIT and OFFSET
 Copyright (c) 2012, Francois Jeannotte.
 """
 
+import apsw
 import binascii
 import bz2
 import collections
@@ -303,7 +304,7 @@ class Document(object):
       return [(get_word_hash(w), len(lst), sum(lst)/len(lst)) for w,lst in words.iteritems()]
     except Exception, ex:
       log.warning('Exception while processing {}, exception: {}'.format(self, ex))
-      return 0, dict()
+      return []
 
 class File(Document):
   def __init__(self, path):
@@ -605,8 +606,8 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       words[wh] = varint_enc(matches_list)
 
     # Figure out which word_hash are present in the DB, and which are not
-    shared_data_array[i].db_status = 'split'
-    wh_in_db = set(MatchTable.selectmany(conn, 'id', ['id'], [(wh,) for wh in words.iterkeys()]))
+    shared_data_array[i].db_status = 'select'
+    wh_in_db = set(wh for (wh,) in MatchTable.selectmany(conn, 'id', ['id'], [(wh,) for wh in words.iterkeys()]))
     wh_new   = set(words.keys()).difference(wh_in_db)
 
     # Create the new tuples for new words
@@ -619,22 +620,28 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     # Process existing words
     shared_data_array[i].db_status = 'blob I/O'
     tuples_upd = []
+    blob = None
     for word_hash in wh_in_db:
       enc_matches = words[word_hash]
-      with conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True) as blob:
-        old_size, = struct.unpack('I', blob.read(4))
-        new_size  = old_size + len(enc_matches)
-        if 4 + new_size <= blob.length():
-          blob.seek(0)
-          blob.write(struct.pack('I', new_size))
-          blob.seek(4 + old_size)
-          blob.write(enc_matches)
-        else:
-          buf = bytearray(3 * (4 + new_size))
-          struct.pack_into('I', buf, 0, new_size)
-          blob.readinto(buf, 4, old_size)
-          memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
-          tuples_upd.append((buf, word_hash))
+      if blob:
+        blob.reopen(word_hash)
+      else:
+        blob = conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True)
+      old_size, = struct.unpack('I', blob.read(4))
+      new_size  = old_size + len(enc_matches)
+      if 4 + new_size <= blob.length():
+        blob.seek(0)
+        blob.write(struct.pack('I', new_size))
+        blob.seek(4 + old_size)
+        blob.write(enc_matches)
+      else:
+        buf = bytearray(3 * (4 + new_size))
+        struct.pack_into('I', buf, 0, new_size)
+        blob.readinto(buf, 4, old_size)
+        memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
+        tuples_upd.append((buf, word_hash))
+    if blob:
+      blob.close()
 
     shared_data_array[i].db_status = 'insert'
     MatchTable.insertmany(conn, ['id', 'matches_blob']  , tuples_new)
@@ -648,7 +655,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
     conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
-    shared_data_array[i].db_status = 'doc upd'
+    shared_data_array[i].db_status = 'update'
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
