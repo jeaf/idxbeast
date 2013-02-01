@@ -592,22 +592,22 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       doc.unique_word_cnt += 1
     shared_data_array[i].doc_done_count += 1
 
+  # Encode matches
+  shared_data_array[i].db_status = 'encoding'
+  for wh, matches_list in words.iteritems():
+    words[wh] = varint_enc(matches_list)
+
   # Flush words
   db_id_str = 'idx-{:02d}'.format(db_id)
   db_path_idx = os.path.join(data_dir, db_id_str + '.db')
   shared_data_array[i].db_id = db_id_str
   shared_data_array[i].db_status = 'locked'
-  with db_lock_idx:
-    conn = datastore.SqliteTable.connect(db_path_idx, MatchTable)
 
-    # Encode matches
-    shared_data_array[i].db_status = 'encoding'
-    for wh, matches_list in words.iteritems():
-      words[wh] = varint_enc(matches_list)
+  with db_lock_idx, datastore.SqliteTable.connect(db_path_idx, MatchTable) as conn:
 
     # Figure out which word_hash are present in the DB, and which are not
     shared_data_array[i].db_status = 'select'
-    wh_in_db = set(wh for (wh,) in MatchTable.selectmany(conn, 'id', ['id'], [(wh,) for wh in words.iterkeys()]))
+    wh_in_db = set(wh for (wh,) in conn.cursor().executemany('SELECT id FROM tbl_MatchTable WHERE id=?', ((wh,) for wh in words.iterkeys())))
     wh_new   = set(words.keys()).difference(wh_in_db)
 
     # Create the new tuples for new words
@@ -643,11 +643,18 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     if blob:
       blob.close()
 
+    # Insert and update rows in the DB
     shared_data_array[i].db_status = 'insert'
-    MatchTable.insertmany(conn, ['id', 'matches_blob']  , tuples_new)
+    conn.cursor().executemany("INSERT INTO tbl_MatchTable ('id', 'matches_blob') VALUES (?,?)", tuples_new)
     shared_data_array[i].db_status = 'update'
-    MatchTable.updatemany(conn, ['matches_blob'], ['id'], tuples_upd)
-    conn.close()
+    conn.cursor().executemany('UPDATE tbl_MatchTable SET matches_blob=? WHERE id=?', tuples_upd)
+
+    # Right before going out of the current scope, set the status to commit.
+    # When the scope ends, the COMMIT will take place because of the context
+    # manager.
+    shared_data_array[i].db_status = 'commit'
+
+  conn.close()
 
   # Flush updated docs
   shared_data_array[i].db_id = 'doc'
