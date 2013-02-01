@@ -123,6 +123,18 @@ def varint_dec(buf):
       i   = 0
   return int_list
 
+def create_tables(cur):
+
+  # match Table
+  #
+  # id          : the id is the truncated MD5 of the flattened (été -> ete) word.
+  # matches_blob: A list of encoded integer groups, one group for each match.
+  #               Each group contains the following integers:
+  #                - document id
+  #                - word count
+  #                - average index
+  cur.execute('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, matches_blob BLOB NOT NULL)')
+
 # Constants
 doctype_file = 1
 doctype_email = 2 
@@ -761,6 +773,10 @@ def main():
     print 'Configuration file is located at {}, opening default editor...'.format(cfg_file)
     subprocess.call('notepad.exe ' + cfg_file)
     return
+
+  # Create tables
+  with apsw.Connection(db_path_idx
+  create
 
   # Check if server
   #if len(sys.argv) > 1 and sys.argv[1] == 'server':
