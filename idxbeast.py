@@ -39,15 +39,12 @@ import sys
 import time
 import traceback
 
-import bottle
 import unidecode
 import win32com.client
 import yaml
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'pysak'))
 import cio
-import datastore
-datastore.trace_sql = False # Set this to True to trace SQL statements
 import menu
 import util
 
@@ -123,9 +120,11 @@ def varint_dec(buf):
       i   = 0
   return int_list
 
-def create_tables(cur):
+def create_tables(conn):
 
-  # match Table
+  sql = conn.cursor().execute
+
+  # match
   #
   # id          : the id is the truncated MD5 of the flattened (été -> ete) word.
   # matches_blob: A list of encoded integer groups, one group for each match.
@@ -133,7 +132,36 @@ def create_tables(cur):
   #                - document id
   #                - word count
   #                - average index
-  cur.execute('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, matches_blob BLOB NOT NULL)')
+  sql('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, matches_blob BLOB NOT NULL)')
+
+  # doc
+  #
+  # The locator should be unique, and should allow unequivocal retrieval of
+  # the document. For example:
+  #   - file     : the path
+  #   - web page : the URL
+  #   - email    : the EntryId
+  # The (optional, immutable) title is used to display to the user. Since it is
+  # immutable, it will not be updated even if it changes in a web page. For
+  # example:
+  #   - file     : <not used, will display locator>
+  #   - web page : the title of the page
+  #   - email    : the subject
+  # We use AUTOINCREMENT for the id primary key, because otherwise SQLite may
+  # reuse ids from previously deleted rows. We don't want this because updated
+  # documents are deleted from the DB, but their id may still be inside the
+  # index for a word.
+  sql('''CREATE TABLE IF NOT EXISTS doc(
+         id              INTEGER PRIMARY KEY AUTOINCREMENT,
+         type_           INTEGER NOT NULL,
+         locator         TEXT UNIQUE NOT NULL,
+         mtime           INTEGER,
+         title           TEXT,
+         size            INTEGER,
+         word_cnt        INTEGER NOT NULL,
+         unique_word_cnt INTEGER NOT NULL,
+         from_           TEXT,
+         to_             TEXT)''')
 
 # Constants
 doctype_file = 1
@@ -144,7 +172,7 @@ data_dir = os.path.expanduser(ur'~\.idxbeast')
 assert not os.path.isfile(data_dir)
 if not os.path.isdir(data_dir):
   os.mkdir(data_dir)
-db_path_doc = os.path.join(data_dir, 'doc.db')
+db_path = os.path.join(data_dir, 'index.db')
 
 # Initialize config file, creating it if necessary
 cfg_file = os.path.join(data_dir, u'settings.yaml')
@@ -244,63 +272,6 @@ def get_word_hash(word):
     word_hash = word_hash_struct.unpack(hashlib.md5(word).digest())[0] & 0x00000000000000000FFFFFFFFFFFFFFF
     word_hash_cache[word] = word_hash
   return word_hash
-
-class DocumentTable(datastore.SqliteTable):
-  """
-  The locator should be unique, and should allow unequivocal retrieval of
-  the document. For example:
-    - file     : the path
-    - web page : the URL
-    - email    : the EntryId
-  The (optional, immutable) title is used to display to the user. Since it is
-  immutable, it will not be updated even if it changes in a web page. For
-  example:
-    - file     : <not used, will display locator>
-    - web page : the title of the page
-    - email    : the subject
-  We use AUTOINCREMENT for the id primary key, because otherwise SQLite may
-  reuse ids from previously deleted rows. We don't want this because updated
-  documents are deleted from the DB, but their id may still be inside the
-  index for a word.
-  """
-  columns = [('id'             , 'INTEGER PRIMARY KEY AUTOINCREMENT'),
-             ('type_'          , 'INTEGER NOT NULL'                 ),
-             ('locator'        , 'TEXT UNIQUE NOT NULL'             ),
-             ('mtime'          , 'INTEGER'                          ),
-             ('title'          , 'TEXT'                             ),
-             ('size'           , 'INTEGER'                          ),
-             ('word_cnt'       , 'INTEGER NOT NULL'                 ),
-             ('unique_word_cnt', 'INTEGER NOT NULL'                 ),
-             ('from_'          , 'TEXT'                             ),
-             ('to_'            , 'TEXT'                             )]
-
-class MatchTable(datastore.SqliteTable):
-  """
-  id          : the id is the truncated MD5 of the flattened (été -> ete) word.
-  matches_blob: A list of encoded integer groups, one group for each match.
-                Each group contains the following integers:
-                 - document id
-                 - word count
-                 - average index
-  """
-  columns = [('id'          , 'INTEGER PRIMARY KEY'),
-             ('matches_blob', 'BLOB NOT NULL'      )]
-
-class SessionTable(datastore.SqliteTable):
-  """
-  Store sessions (for server mode).
-  """
-  columns = [('id'  , 'INTEGER PRIMARY KEY'),
-             ('sid' , 'TEXT NOT NULL'      ),
-             ('user', 'TEXT'               )]
-
-class UserTable(datastore.SqliteTable):
-  """
-  Store users for server mode.
-  """
-  columns = [('id'      , 'INTEGER PRIMARY KEY'),
-             ('name'    , 'TEXT NOT NULL'      ),
-             ('pwd_hash', 'TEXT NOT NULL'      )]
 
 supported_extensions = set(''.join(['.', ext]) for ext in cfg.indexed_file_types.split())
 def is_file_handled(path):
@@ -419,11 +390,11 @@ class MenuDoc(object):
 
 class ResultSet(object):
   def __init__(self, matches):
-    conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+    conn = apsw.Connection(db_path)
     self.relevs = dict(matches)
     tuples = [(i,) for i,relev in matches]
-    self.count = sum(1 for x in DocumentTable.selectmany(conn, '1', ['id'], tuples))
-    self.cur = DocumentTable.selectmany(conn, 'id,locator,title', ['id'], tuples)
+    self.count = sum(1 for x in conn.cursor().executemany('SELECT 1 FROM doc WHERE id=?', tuples))
+    self.cur = conn.cursor().executemany('SELECT id,locator,title FROM doc WHERE id=?', tuples)
   def __len__(self):
     return self.count
   def set_page_size(self, size):
@@ -439,20 +410,19 @@ def search(words):
   
   # Extract the matches for all words
   matches = []
-  conns_idx = [datastore.SqliteTable.connect(p, MatchTable) for p in glob.glob(os.path.join(data_dir, 'idx-*.db'))]
+  sql = apsw.Connection(db_path).cursor().execute
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     cur_dict = dict()
-    for conn_idx in conns_idx:
-
-      if MatchTable.exists(conn_idx, id=word_hash):
-        with conn_idx.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, False) as blob:
-          size, = struct.unpack('I', blob.read(4))
-          buf = bytearray(size)
-          blob.readinto(buf, 0, size)
-          int_list = varint_dec(buf)
-          assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
-          for i in range(0, len(int_list), 3):
-            cur_dict[int_list[i]] = int_list[i+1]
+    for _ in sql('SELECT 1 FROM match WHERE id=?', (word_hash,)):
+      with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
+        size, = struct.unpack('I', blob.read(4))
+        buf = bytearray(size)
+        blob.readinto(buf, 0, size)
+        int_list = varint_dec(buf)
+        assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+        for i in range(0, len(int_list), 3):
+          cur_dict[int_list[i]] = int_list[i+1]
+        break
     matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
@@ -511,9 +481,9 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   # Read the entire document DB in memory
   dispatcher_shared_data.status = 'Load initial document list'
   initial_docs = dict()
-  conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+  sql = apsw.Connection(db_path).cursor().execute
   next_doc_id = 0
-  for id,locator,mtime in DocumentTable.select(conn, 'id,locator,mtime'):
+  for id,locator,mtime in sql('SELECT id,locator,mtime FROM doc'):
     initial_docs[locator] = id,mtime
     next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
@@ -570,9 +540,6 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
     current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
     updated_docs = []
 
-  # At this point we can close the DB connection
-  conn.close()
-
   # Wait on indexer processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
   [p.join() for p in worker_procs if p]
@@ -615,11 +582,11 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].db_id = db_id_str
   shared_data_array[i].db_status = 'locked'
 
-  with db_lock_idx, datastore.SqliteTable.connect(db_path_idx, MatchTable) as conn:
+  with db_lock_idx, apsw.Connection(db_path) as conn:
 
     # Figure out which word_hash are present in the DB, and which are not
     shared_data_array[i].db_status = 'select'
-    wh_in_db = set(wh for (wh,) in conn.cursor().executemany('SELECT id FROM tbl_MatchTable WHERE id=?', ((wh,) for wh in words.iterkeys())))
+    wh_in_db = set(wh for (wh,) in conn.cursor().executemany('SELECT id FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
     wh_new   = set(words.keys()).difference(wh_in_db)
 
     # Create the new tuples for new words
@@ -638,7 +605,7 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       if blob:
         blob.reopen(word_hash)
       else:
-        blob = conn.blobopen('main', 'tbl_MatchTable', 'matches_blob', word_hash, True)
+        blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
       old_size, = struct.unpack('I', blob.read(4))
       new_size  = old_size + len(enc_matches)
       if 4 + new_size <= blob.length():
@@ -657,33 +624,29 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
 
     # Insert and update rows in the DB
     shared_data_array[i].db_status = 'insert'
-    conn.cursor().executemany("INSERT INTO tbl_MatchTable ('id', 'matches_blob') VALUES (?,?)", tuples_new)
+    conn.cursor().executemany("INSERT INTO match ('id', 'matches_blob') VALUES (?,?)", tuples_new)
     shared_data_array[i].db_status = 'update'
-    conn.cursor().executemany('UPDATE tbl_MatchTable SET matches_blob=? WHERE id=?', tuples_upd)
+    conn.cursor().executemany('UPDATE match SET matches_blob=? WHERE id=?', tuples_upd)
 
     # Right before going out of the current scope, set the status to commit.
     # When the scope ends, the COMMIT will take place because of the context
     # manager.
     shared_data_array[i].db_status = 'commit'
 
-  conn.close()
-
   # Flush updated docs
   shared_data_array[i].db_id = 'doc'
   tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
   shared_data_array[i].db_status = 'locked'
   with db_lock_doc:
-    conn = datastore.SqliteTable.connect(db_path_doc, DocumentTable)
+    conn = apsw.Connection(db_path)
     shared_data_array[i].db_status = 'update'
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
-      DocumentTable.deletemany(conn, ['id'], doc_ids_to_delete)
+      conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
 
     # Insert new/updated documents
-    DocumentTable.insertmany(conn, cols=['id', 'type_', 'locator', 'mtime', 'title', 'size', 'word_cnt', 'unique_word_cnt', 'from_', 'to_'], tuples=tuples)
-
-    conn.close()
+    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?)", tuples)
 
   shared_data_array[i].db_id     = ''
   shared_data_array[i].db_status = ''
@@ -691,80 +654,6 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
   shared_data_array[i].current_doc    = ''
   shared_data_array[i].pid            = 0
   shared_data_array[i].bundle_size    = 0
-
-server_conn = None
-
-@bottle.route('/jquery.js')
-def bottle_idxbeast_jquery():
-  return bottle.static_file('jquery.js', '.')
-
-@bottle.route('/jquery.cookie.js')
-def bottle_idxbeast_jquery():
-  return bottle.static_file('jquery.cookie.js', '.')
-
-@bottle.route('/jquery.encoding.digests.sha1.js')
-def bottle_idxbeast_jquery():
-  return bottle.static_file('jquery.encoding.digests.sha1.js', '.')
-
-@bottle.route('/idxbeast')
-def bottle_idxbeast():
-  sid = bottle.request.get_cookie('sid')
-  print 'sid:', sid
-  if sid:
-    for user, in SessionTable.select(server_conn, 'user', sid=sid):
-      print 'User {} authenticated'.format(user)
-      return bottle.template('idxbeast.tpl', page='search')
-    else:
-      user_name = bottle.request.query.user
-      user_auth = bottle.request.query.auth
-      if user_name and user_auth:
-        for pwd_hash, in UserTable.select(server_conn, 'pwd_hash', name=user_name):
-          concat = '{}{}'.format(pwd_hash, sid)
-          computed_user_auth = hashlib.sha1(concat).hexdigest()
-          if user_auth == computed_user_auth:
-            SessionTable.insert(server_conn, sid=sid, user=user_name)
-            return bottle.template('idxbeast.tpl', page='search')
-          else:
-            print 'Failed login'
-          break
-        else:
-          print 'Invalid user'
-      return bottle.template('idxbeast.tpl', page='login')
-  else:
-    print 'setting cookie'
-    bottle.response.set_cookie('sid', binascii.hexlify(os.urandom(16)), path='/')
-    return bottle.template('idxbeast.tpl', page='login')
-
-@bottle.route('/idxbeast/logout')
-def bottle_idxbeast_logout():
-  bottle.response.delete_cookie('sid', path='/')
-  return 'You have been logged out.'
-  
-@bottle.route('/idxbeast/api/search')
-def bottle_idxbeast_api_search():
-  query_str = bottle.request.query.q
-  if query_str:
-    docs = search(server_conn, query_str)
-    docs.set_page_size(25)
-    docs_list = list()
-    for doc in docs.get_page(0):
-      docs_list.append({'id': doc.id, 'title': doc.disp_str})
-    return {'res': docs_list}
-
-@bottle.route('/idxbeast/api/activate')
-def bottle_idxbeast_api_activate():
-  doc_id = bottle.request.query.doc_id
-  if doc_id:
-    for locator, in DocumentTable.select(server_conn, 'locator', id=int(doc_id)):
-      d = MenuDoc(locator=locator)
-      d.activate()
-      break
-    return {}
-
-def run_server(conn):
-  global server_conn
-  server_conn = conn
-  bottle.run(host='localhost', port=8080, debug=True, reloader=True)
 
 def main():
 
@@ -775,51 +664,8 @@ def main():
     return
 
   # Create tables
-  with apsw.Connection(db_path_idx
-  create
-
-  # Check if server
-  #if len(sys.argv) > 1 and sys.argv[1] == 'server':
-  #  run_server(conn)
-  #  return
-
-  # Check if add user (for web server)
-  #if len(sys.argv) > 1 and sys.argv[1] == 'user':
-  #  user_name = sys.argv[2]
-  #  if UserTable.exists(conn, name=user_name):
-  #    print 'User {} already exists'.format(user_name)
-  #  else:
-  #    print 'Creating user {}'.format(user_name)
-  #    pwd = getpass.getpass()
-  #    UserTable.insert(conn, name=user_name, pwd_hash=hashlib.sha1(pwd).hexdigest())
-  #  return
-    
-  # Check if search
-  if len(sys.argv) == 3 and sys.argv[1] == 'search':
-    print 'Executing search...'
-    start_time = time.clock()
-    docs = search(sys.argv[2])
-    docs.set_page_size(20)
-    docs_page = docs.get_page(0)
-    elapsed_time = time.clock() - start_time
-    print '\n{} documents found in {}, showing page 0 ({}-{})\n'.format(len(docs), datetime.timedelta(seconds=elapsed_time), 0, len(docs_page)-1)
-    if docs:
-      syncMenu = menu.Menu()
-      for doc in docs_page:
-        syncMenu.addItem(menu.Item(doc.disp_str, toggle=True, actions=' *', obj=doc))
-      res = syncMenu.show(sort=True)
-      if not res:
-        return # This means the user pressed ESC in the menu, abort processing
-      selected_docs = []
-      print
-      for item in syncMenu.items:
-        if item.actions[0] == '*':
-          selected_docs.append(item.obj)
-      for selected_doc in selected_docs:
-        selected_doc.activate()
-    else:
-      print 'No results found.'
-    return
+  with apsw.Connection(db_path) as conn:
+    create_tables(conn)
 
   # Run indexing
   if len(sys.argv) == 2 and sys.argv[1] == 'index':
