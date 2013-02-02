@@ -5,25 +5,15 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
-todo: use varint for blob encoding for matches for a given word
-todo: use Blob IO to append data to blobs (now possible because of using of
-      varint), double size when needed to grow blob
-todo: use multiple index DBs based on the first bits of MD5 instead of
-      randomly dispatching matches to multiples DBs.
 todo: improve ResultSet paging, using LIMIT and OFFSET
 
 Copyright (c) 2012, Francois Jeannotte.
 """
 
 import apsw
-import binascii
-import bz2
 import collections
-import cPickle
 import ctypes
 import datetime
-import getpass
-import glob
 import hashlib
 import itertools
 import logging
@@ -31,7 +21,6 @@ import logging.handlers
 import multiprocessing as mt
 import operator
 import os
-import random
 import string
 import struct
 import subprocess
@@ -69,6 +58,8 @@ def varint_enc(int_list):
   and varint encoding (both with and without compression) for a short
   sequence of integers.
 
+  >>> import bz2
+  >>> import cPickle
   >>> lst = [987,567,19823649185,12345134,3,4,5,99,1,0,123123,2,3,234987987352,3245,23,2,42,5,5,54353,34,35,345,53,452]
   >>> lst.extend([4,1,2,3,123123,123,399999,12,333333333,3,23,1,23,12,345,6,567,8,8,9,76,3,45,234,234,345,45,6765,78])
   >>> lst.extend([987,234234,234,4654,67,75,87,8,9,9,78790,345,345,243,2342,123,342,433,453,4564,56,567,56,75,67])
@@ -172,7 +163,7 @@ data_dir = os.path.expanduser(ur'~\.idxbeast')
 assert not os.path.isfile(data_dir)
 if not os.path.isdir(data_dir):
   os.mkdir(data_dir)
-db_path = os.path.join(data_dir, 'index.db')
+db_path = os.path.join(data_dir, 'index.sqlite3')
 
 # Initialize config file, creating it if necessary
 cfg_file = os.path.join(data_dir, u'settings.yaml')
@@ -180,7 +171,6 @@ assert not os.path.isdir(cfg_file)
 if not os.path.isfile(cfg_file):
   with open(cfg_file, 'w') as f:
     default_config_str = '''
-    indexer_db_count    : 4
     indexer_proc_count  : 4
     indexed_file_types  : 'bat c cpp cs cxx h hpp htm html ini java js log md py rest rst txt xml yaml yml'
     word_hash_cache_size: 100000
@@ -209,7 +199,6 @@ if os.path.isfile(cfg_file):
   with open(cfg_file, 'r') as f:
     cfg_obj  = yaml.load(f)
 class cfg(object):
-  indexer_db_count      = cfg_obj.get('indexer_db_count', 4)
   indexer_proc_count    = cfg_obj.get('indexer_proc_count', 4)
   indexed_file_types    = cfg_obj.get('indexed_file_types', 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml')
   word_hash_cache_size  = cfg_obj.get('word_hash_cache_size', 10000)
@@ -410,7 +399,8 @@ def search(words):
   
   # Extract the matches for all words
   matches = []
-  sql = apsw.Connection(db_path).cursor().execute
+  conn = apsw.Connection(db_path)
+  sql = conn.cursor().execute
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     cur_dict = dict()
     for _ in sql('SELECT 1 FROM match WHERE id=?', (word_hash,)):
@@ -422,7 +412,7 @@ def search(words):
         assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
         for i in range(0, len(int_list), 3):
           cur_dict[int_list[i]] = int_list[i+1]
-        break
+      break
     matches.append(cur_dict)
 
   # Loop on intersected keys and sum their relevences
@@ -436,11 +426,9 @@ def search(words):
   return ResultSet(matches)
 
 class IndexerSharedData(ctypes.Structure):
-  _fields_ = [('db_id'         , ctypes.c_char*10 ), # e.g., doc, idx-01, idx-02
-              ('db_status'     , ctypes.c_char*10 ), # e.g., idle, locked, writing
+  _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
               ('doc_done_count', ctypes.c_int     ),
               ('current_doc'   , ctypes.c_char*380),
-              ('pid'           , ctypes.c_int     ),
               ('bundle_size'   , ctypes.c_int     )]
 
 class DispatcherSharedData(ctypes.Structure):
@@ -458,17 +446,16 @@ dispatcher_shared_data    = mt.Value(DispatcherSharedData)
 indexer_shared_data_array = mt.Array(IndexerSharedData, cfg.indexer_proc_count)
 dispatcher_shared_data.status = 'Idle'
 for dat in indexer_shared_data_array:
-  dat.db_id = ''
-  dat.db_status = ''
+  dat.status = ''
 
-def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock_doc, db_lock_idx, db_id):
+def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock):
   if len(bundle) == 0:
     return
   for i in itertools.cycle(range(len(worker_procs))):
     if worker_procs[i] and worker_procs[i].is_alive():
       time.sleep(0.01)
     else:
-      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id))
+      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock))
       worker_procs[i].start()
       del bundle[:]
       return
@@ -488,10 +475,8 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
     next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
 
-  # Create DB locks
-  db_lock_doc = mt.Lock()
-  db_locks_idx = [mt.Lock() for i in range(cfg.indexer_db_count)]
-  current_idx_db_id = random.randint(0, cfg.indexer_db_count-1)
+  # Create DB lock
+  db_lock = mt.Lock()
 
   # List all documents
   updated_docs   = []
@@ -526,8 +511,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
       # If we reached the bundle size, dispatch
       if len(updated_docs) >= cfg.doc_bundle_size:
         dispatcher_shared_data.status = 'Waiting for free indexer slot'
-        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
-        current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
+        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock)
         updated_docs = []
         
     except Exception, ex:
@@ -536,8 +520,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   # Final flush
   if len(updated_docs) >= 0:
     dispatcher_shared_data.status = 'Waiting for free indexer slot'
-    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock_doc, db_locks_idx[current_idx_db_id], current_idx_db_id)
-    current_idx_db_id = (current_idx_db_id + 1) % cfg.indexer_db_count
+    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock)
     updated_docs = []
 
   # Wait on indexer processes
@@ -545,15 +528,13 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   [p.join() for p in worker_procs if p]
   dispatcher_shared_data.status = 'Idle'
 
-def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
+def indexer_proc(i, shared_data_array, bundle, db_lock):
 
   # Index documents
   assert len(bundle) > 0
-  shared_data_array[i].db_id          = ''
-  shared_data_array[i].db_status      = ''
+  shared_data_array[i].status      = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
-  shared_data_array[i].pid            = os.getpid()
   shared_data_array[i].bundle_size    = len(bundle)
   words = collections.defaultdict(list)
   docs_new          = []
@@ -572,32 +553,29 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
     shared_data_array[i].doc_done_count += 1
 
   # Encode matches
-  shared_data_array[i].db_status = 'encoding'
+  shared_data_array[i].status = 'encoding'
   for wh, matches_list in words.iteritems():
     words[wh] = varint_enc(matches_list)
 
   # Flush words
-  db_id_str = 'idx-{:02d}'.format(db_id)
-  db_path_idx = os.path.join(data_dir, db_id_str + '.db')
-  shared_data_array[i].db_id = db_id_str
-  shared_data_array[i].db_status = 'locked'
+  shared_data_array[i].status = 'locked'
 
-  with db_lock_idx, apsw.Connection(db_path) as conn:
+  with db_lock, apsw.Connection(db_path) as conn:
 
     # Figure out which word_hash are present in the DB, and which are not
-    shared_data_array[i].db_status = 'select'
+    shared_data_array[i].status = 'select'
     wh_in_db = set(wh for (wh,) in conn.cursor().executemany('SELECT id FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
     wh_new   = set(words.keys()).difference(wh_in_db)
 
     # Create the new tuples for new words
-    shared_data_array[i].db_status = 'new'
+    shared_data_array[i].status = 'new'
     tuples_new = []
     for wh in wh_new:
       enc_matches = words[wh]
       tuples_new.append((wh, struct.pack('I', len(enc_matches)) + enc_matches))
 
     # Process existing words
-    shared_data_array[i].db_status = 'blob I/O'
+    shared_data_array[i].status = 'blob I/O'
     tuples_upd = []
     blob = None
     for word_hash in wh_in_db:
@@ -623,49 +601,63 @@ def indexer_proc(i, shared_data_array, bundle, db_lock_doc, db_lock_idx, db_id):
       blob.close()
 
     # Insert and update rows in the DB
-    shared_data_array[i].db_status = 'insert'
+    shared_data_array[i].status = 'insert matches'
     conn.cursor().executemany("INSERT INTO match ('id', 'matches_blob') VALUES (?,?)", tuples_new)
-    shared_data_array[i].db_status = 'update'
+    shared_data_array[i].status = 'update matches'
     conn.cursor().executemany('UPDATE match SET matches_blob=? WHERE id=?', tuples_upd)
+
+    # Delete outdated documents
+    if len(doc_ids_to_delete) > 0:
+      shared_data_array[i].status = 'delete docs'
+      conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
+
+    # Insert new/updated documents
+    shared_data_array[i].status = 'insert docs'
+    tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
+    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?)", tuples)
 
     # Right before going out of the current scope, set the status to commit.
     # When the scope ends, the COMMIT will take place because of the context
     # manager.
-    shared_data_array[i].db_status = 'commit'
+    shared_data_array[i].status = 'commit'
 
-  # Flush updated docs
-  shared_data_array[i].db_id = 'doc'
-  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
-  shared_data_array[i].db_status = 'locked'
-  with db_lock_doc:
-    conn = apsw.Connection(db_path)
-    shared_data_array[i].db_status = 'update'
-
-    # Delete outdated documents
-    if len(doc_ids_to_delete) > 0:
-      conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
-
-    # Insert new/updated documents
-    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?)", tuples)
-
-  shared_data_array[i].db_id     = ''
-  shared_data_array[i].db_status = ''
+  shared_data_array[i].status = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
-  shared_data_array[i].pid            = 0
   shared_data_array[i].bundle_size    = 0
 
 def main():
 
-  # Check if config
-  if len(sys.argv) > 1 and sys.argv[1] == 'config':
-    print 'Configuration file is located at {}, opening default editor...'.format(cfg_file)
-    subprocess.call('notepad.exe ' + cfg_file)
-    return
-
   # Create tables
   with apsw.Connection(db_path) as conn:
     create_tables(conn)
+
+  # Check if search
+  if len(sys.argv) == 3 and sys.argv[1] == 'search':
+    print 'Executing search...'
+    start_time = time.clock()
+    docs = search(sys.argv[2])
+    docs.set_page_size(20)
+    docs_page = docs.get_page(0)
+    elapsed_time = time.clock() - start_time
+    print '\n{} documents found in {}, showing page 0 ({}-{})\n'.format(len(docs), datetime.timedelta(seconds=elapsed_time), 0, len(docs_page)-1)
+    if docs:
+      syncMenu = menu.Menu()
+      for doc in docs_page:
+        syncMenu.addItem(menu.Item(doc.disp_str, toggle=True, actions=' *', obj=doc))
+      res = syncMenu.show(sort=True)
+      if not res:
+        return # This means the user pressed ESC in the menu, abort processing
+      selected_docs = []
+      print
+      for item in syncMenu.items:
+        if item.actions[0] == '*':
+          selected_docs.append(item.obj)
+      for selected_doc in selected_docs:
+        selected_doc.activate()
+    else:
+      print 'No results found.'
+    return
 
   # Run indexing
   if len(sys.argv) == 2 and sys.argv[1] == 'index':
@@ -695,7 +687,7 @@ def main():
       print 'document: {}'.format(str_fill(dsd.current_doc, c_width-18))
       print
       print '-'*c_width
-      header = '{:^5} | {:^18} | {:^55} | {:^6} | {:^8}'.format('PID', 'Progress', 'Document', 'DB', 'DB Status')
+      header = '{:^18} | {:^55} | {:^6} | {:^8}'.format('Progress', 'Document', 'DB', 'DB Status')
       print header
       print '-'*c_width
       for i in range(len(indexer_shared_data_array)):
@@ -703,15 +695,15 @@ def main():
         done_percentage = 0
         if dat.bundle_size > 0:
           done_percentage = 100*dat.doc_done_count / dat.bundle_size
-        print '{:>5} | {:>4} / {:>4} ({:>3}%) | {:>55} | {:^6} | '.format(
-        dat.pid, dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55), dat.db_id),
-        if dat.db_status == 'writing':
+        print '{:>4} / {:>4} | {:>55} | {:^6} | '.format(
+        dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55)),
+        if dat.status == 'writing':
           col = 'FOREGROUND_GREEN'
-        elif dat.db_status == 'locked':
+        elif dat.status == 'locked':
           col = 'FOREGROUND_RED'
         else:
           col = None
-        cio.write_color(str_fill(dat.db_status, 10), col, endline=True)
+        cio.write_color(str_fill(dat.status, 10), col, endline=True)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
