@@ -687,23 +687,21 @@ def main():
       print 'document: {}'.format(str_fill(dsd.current_doc, c_width-18))
       print
       print '-'*c_width
-      header = '{:^18} | {:^55} | {:^6} | {:^8}'.format('Progress', 'Document', 'DB', 'DB Status')
+      header = ' {:^12} | {:^75} | {:^25}'.format('Progress', 'Document', 'Status')
       print header
       print '-'*c_width
       for i in range(len(indexer_shared_data_array)):
         dat = indexer_shared_data_array[i]
         done_percentage = 0
-        if dat.bundle_size > 0:
-          done_percentage = 100*dat.doc_done_count / dat.bundle_size
-        print '{:>4} / {:>4} | {:>55} | {:^6} | '.format(
-        dat.doc_done_count, dat.bundle_size, done_percentage, str_fill(dat.current_doc, 55)),
+        print ' {:>4} / {:>4}  | {:>75} | '.format(
+        dat.doc_done_count, dat.bundle_size, str_fill(dat.current_doc, 75)),
         if dat.status == 'writing':
           col = 'FOREGROUND_GREEN'
         elif dat.status == 'locked':
           col = 'FOREGROUND_RED'
         else:
           col = None
-        cio.write_color(str_fill(dat.status, 10), col, endline=True)
+        cio.write_color(str_fill(dat.status, 25), col, endline=True)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
