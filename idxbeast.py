@@ -268,10 +268,12 @@ def is_file_handled(path):
 class Document(object):
   def index(self):
     try:
-      words = collections.defaultdict(list)
+      words = dict()
       for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
-        words[w].append(i)
-      return [(get_word_hash(w), len(lst), sum(lst)/len(lst)) for w,lst in words.iteritems()]
+        lst = words.setdefault(w, [0,0])
+        lst[0] += 1
+        lst[1] += i
+      return [(get_word_hash(w), lst[0], lst[1]/lst[0]) for w,lst in words.iteritems()]
     except Exception, ex:
       log.warning('Exception while processing {}, exception: {}'.format(self, ex))
       return []
