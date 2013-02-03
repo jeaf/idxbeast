@@ -379,34 +379,29 @@ def search(words, limit, offset):
   
   conn = apsw.Connection(db_path)
   cur = conn.cursor()
-
-  cur.execute("ATTACH ':memory:' AS search")
-  cur.execute('CREATE TABLE search.match(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
-  cur.execute('CREATE TABLE search.query(word_hash INTEGER PRIMARY KEY)')
+  cur.execute("ATTACH ':memory:' AS search_db")
+  cur.execute('CREATE TABLE search_db.search(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
   search_tuples = []
-  query_tuples  = []
 
-  for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
-    query_tuples.append((word_hash,))
-    for _ in cur.execute('SELECT 1 FROM match WHERE id=?', (word_hash,)):
-      with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
-        size, = struct.unpack('I', blob.read(4))
-        buf = bytearray(size)
-        blob.readinto(buf, 0, size)
-        int_list = varint_dec(buf)
-        assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
-        for i in range(0, len(int_list), 3):
-          search_tuples.append((word_hash, int_list[i], int_list[i+1]))
+  query_word_hashes = [(get_word_hash(w),) for w in unidecode.unidecode(words).translate(translate_table).split()]
+  for (word_hash,) in cur.executemany('SELECT id FROM match WHERE id=?', query_word_hashes):
+    with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
+      size, = struct.unpack('I', blob.read(4))
+      buf = bytearray(size)
+      blob.readinto(buf, 0, size)
+      int_list = varint_dec(buf)
+      assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+      for i in range(0, len(int_list), 3):
+        search_tuples.append((word_hash, int_list[i], int_list[i+1]))
 
   with conn:  
-    cur.executemany('INSERT INTO search.match(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
-    cur.executemany('INSERT INTO search.query(word_hash) VALUES (?)', query_tuples)
+    cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
 
-  return cur.execute('''SELECT doc.locator, SUM(search.match.relev), doc.title FROM doc
-                        INNER JOIN search.match ON main.doc.id = search.match.doc_id
-                        GROUP BY main.doc.id HAVING COUNT(*) = (SELECT COUNT(*) FROM search.query)
-                        ORDER BY SUM(search.match.relev) DESC
-                        LIMIT ? OFFSET ?''', (limit,offset))
+  return cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
+                        INNER JOIN search ON main.doc.id = search.doc_id
+                        GROUP BY main.doc.id HAVING COUNT(*) = ?
+                        ORDER BY SUM(search.relev) DESC
+                        LIMIT ? OFFSET ?''', (len(query_word_hashes), limit,offset))
 
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
