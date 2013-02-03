@@ -5,8 +5,6 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
-todo: improve ResultSet paging, using LIMIT and OFFSET
-
 Copyright (c) 2012, Francois Jeannotte.
 """
 
@@ -377,24 +375,6 @@ class MenuDoc(object):
       mapi = outlook.GetNamespace('MAPI')
       mapi.GetItemFromId(self.locator).Display()
 
-class ResultSet(object):
-  def __init__(self, matches):
-    conn = apsw.Connection(db_path)
-    self.relevs = dict(matches)
-    tuples = [(i,) for i,relev in matches]
-    self.count = sum(1 for x in conn.cursor().executemany('SELECT 1 FROM doc WHERE id=?', tuples))
-    self.cur = conn.cursor().executemany('SELECT id,locator,title FROM doc WHERE id=?', tuples)
-  def __len__(self):
-    return self.count
-  def set_page_size(self, size):
-    self.page_size = size
-    self.page_count, r = divmod(self.count, self.page_size)
-    if r != 0:
-      self.page_count += 1
-  def get_page(self, idx):
-    i = idx*self.page_size
-    return list(MenuDoc(loc,self.relevs[id],title) for (id,loc,title) in itertools.islice(self.cur, self.page_size))
-  
 def search(words, limit, offset):
   
   # Extract the matches for all words
@@ -432,23 +412,11 @@ def search(words, limit, offset):
   # search temporary table will be persistent, and contains matches for
   # words that are not part of the search query
   # WHERE search.match.word_hash IN (SELECT word_hash FROM search.query)
-  cur.execute('''SELECT doc.locator, SUM(search.match.relev) FROM doc
-                 INNER JOIN search.match ON main.doc.id = search.match.doc_id
-                 GROUP BY main.doc.id HAVING COUNT(*) = (SELECT COUNT(*) FROM search.query)
-                 ORDER BY SUM(search.match.relev) DESC
-                 LIMIT ? OFFSET ?''', (limit,offset))
-  for loc,rel in cur:
-    print loc,rel
-
-  # Loop on intersected keys and sum their relevences
-  results = dict()
-  intersect_docs = reduce(set.intersection, (set(d.keys()) for d in matches))
-  for doc in intersect_docs:
-    results[doc] = sum(d[doc] for d in matches)
-  matches = sorted(results.iteritems(), key=operator.itemgetter(1), reverse=True)
-
-  # Construct and return the ResultSet
-  return ResultSet(matches)
+  return cur.execute('''SELECT doc.locator, SUM(search.match.relev), doc.title FROM doc
+                        INNER JOIN search.match ON main.doc.id = search.match.doc_id
+                        GROUP BY main.doc.id HAVING COUNT(*) = (SELECT COUNT(*) FROM search.query)
+                        ORDER BY SUM(search.match.relev) DESC
+                        LIMIT ? OFFSET ?''', (limit,offset))
 
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
@@ -661,15 +629,14 @@ def main():
   if len(sys.argv) == 3 and sys.argv[1] == 'search':
     print 'Executing search...'
     start_time = time.clock()
-    docs = search(sys.argv[2], 20, 0)
-    docs.set_page_size(20)
-    docs_page = docs.get_page(0)
+    cur = search(sys.argv[2], 20, 0)
     elapsed_time = time.clock() - start_time
-    print '\n{} documents found in {}, showing page 0 ({}-{})\n'.format(len(docs), datetime.timedelta(seconds=elapsed_time), 0, len(docs_page)-1)
-    if docs:
-      syncMenu = menu.Menu()
-      for doc in docs_page:
-        syncMenu.addItem(menu.Item(doc.disp_str, toggle=True, actions=' *', obj=doc))
+    print '\n{} documents found in {}\n'.format(0, datetime.timedelta(seconds=elapsed_time))
+    syncMenu = menu.Menu()
+    for locator, relev, title in cur:
+      disp_str = '[{}] {}'.format(relev, title if title else locator)
+      syncMenu.addItem(menu.Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
+    if syncMenu.items:
       res = syncMenu.show(sort=True)
       if not res:
         return # This means the user pressed ESC in the menu, abort processing
