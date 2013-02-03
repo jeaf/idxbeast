@@ -377,12 +377,14 @@ class MenuDoc(object):
 
 def search(words, limit, offset):
   
+  # Connect to the DB and create the necessary temporary memory tables
   conn = apsw.Connection(db_path)
   cur = conn.cursor()
   cur.execute("ATTACH ':memory:' AS search_db")
   cur.execute('CREATE TABLE search_db.search(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
-  search_tuples = []
 
+  # Get all the matches blobs from the DB and expand them into the temporary search table
+  search_tuples = []
   query_word_hashes = [(get_word_hash(w),) for w in unidecode.unidecode(words).translate(translate_table).split()]
   for (word_hash,) in cur.executemany('SELECT id FROM match WHERE id=?', query_word_hashes):
     with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
@@ -393,16 +395,18 @@ def search(words, limit, offset):
       assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
       for i in range(0, len(int_list), 3):
         search_tuples.append((word_hash, int_list[i], int_list[i+1]))
-
   with conn:  
     cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
 
+  # Figure out the total number of results
   for total, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?)''', (len(query_word_hashes),)):
     break
   else:
     total = 0
+
+  # Return search results
   return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?
