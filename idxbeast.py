@@ -397,11 +397,17 @@ def search(words, limit, offset):
   with conn:  
     cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
 
-  return cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
-                        INNER JOIN search ON main.doc.id = search.doc_id
-                        GROUP BY main.doc.id HAVING COUNT(*) = ?
-                        ORDER BY SUM(search.relev) DESC
-                        LIMIT ? OFFSET ?''', (len(query_word_hashes), limit,offset))
+  for total, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
+                               INNER JOIN search ON main.doc.id = search.doc_id
+                               GROUP BY main.doc.id HAVING COUNT(1) = ?)''', (len(query_word_hashes),)):
+    break
+  else:
+    total = 0
+  return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
+                               INNER JOIN search ON main.doc.id = search.doc_id
+                               GROUP BY main.doc.id HAVING COUNT(1) = ?
+                               ORDER BY SUM(search.relev) DESC
+                               LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
 
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
@@ -614,9 +620,9 @@ def main():
   if len(sys.argv) == 3 and sys.argv[1] == 'search':
     print 'Executing search...'
     start_time = time.clock()
-    cur = search(sys.argv[2], 20, 0)
+    total, cur = search(sys.argv[2], 20, 0)
     elapsed_time = time.clock() - start_time
-    print '\n{} documents found in {}\n'.format(0, datetime.timedelta(seconds=elapsed_time))
+    print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
     syncMenu = menu.Menu()
     for locator, relev, title in cur:
       disp_str = '[{}] {}'.format(relev, title if title else locator)
