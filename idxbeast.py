@@ -395,15 +395,23 @@ class ResultSet(object):
     i = idx*self.page_size
     return list(MenuDoc(loc,self.relevs[id],title) for (id,loc,title) in itertools.islice(self.cur, self.page_size))
   
-def search(words):
+def search(words, limit, offset):
   
   # Extract the matches for all words
   matches = []
   conn = apsw.Connection(db_path)
-  sql = conn.cursor().execute
+  cur = conn.cursor()
+
+  cur.execute("ATTACH ':memory:' AS search")
+  cur.execute('CREATE TABLE search.match(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
+  cur.execute('CREATE TABLE search.query(word_hash INTEGER PRIMARY KEY)')
+  search_tuples = []
+  query_tuples  = []
+
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
+    query_tuples.append((word_hash,))
     cur_dict = dict()
-    for _ in sql('SELECT 1 FROM match WHERE id=?', (word_hash,)):
+    for _ in cur.execute('SELECT 1 FROM match WHERE id=?', (word_hash,)):
       with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
         size, = struct.unpack('I', blob.read(4))
         buf = bytearray(size)
@@ -412,8 +420,25 @@ def search(words):
         assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
         for i in range(0, len(int_list), 3):
           cur_dict[int_list[i]] = int_list[i+1]
+          search_tuples.append((word_hash, int_list[i], int_list[i+1]))
       break
     matches.append(cur_dict)
+
+  with conn:  
+    cur.executemany('INSERT INTO search.match(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
+    cur.executemany('INSERT INTO search.query(word_hash) VALUES (?)', query_tuples)
+
+  # This will need to be added after the INNER JOIN line if eventually the
+  # search temporary table will be persistent, and contains matches for
+  # words that are not part of the search query
+  # WHERE search.match.word_hash IN (SELECT word_hash FROM search.query)
+  cur.execute('''SELECT doc.locator, SUM(search.match.relev) FROM doc
+                 INNER JOIN search.match ON main.doc.id = search.match.doc_id
+                 GROUP BY main.doc.id HAVING COUNT(*) = (SELECT COUNT(*) FROM search.query)
+                 ORDER BY SUM(search.match.relev) DESC
+                 LIMIT ? OFFSET ?''', (limit,offset))
+  for loc,rel in cur:
+    print loc,rel
 
   # Loop on intersected keys and sum their relevences
   results = dict()
@@ -636,7 +661,7 @@ def main():
   if len(sys.argv) == 3 and sys.argv[1] == 'search':
     print 'Executing search...'
     start_time = time.clock()
-    docs = search(sys.argv[2])
+    docs = search(sys.argv[2], 20, 0)
     docs.set_page_size(20)
     docs_page = docs.get_page(0)
     elapsed_time = time.clock() - start_time
