@@ -377,8 +377,6 @@ class MenuDoc(object):
 
 def search(words, limit, offset):
   
-  # Extract the matches for all words
-  matches = []
   conn = apsw.Connection(db_path)
   cur = conn.cursor()
 
@@ -390,7 +388,6 @@ def search(words, limit, offset):
 
   for word_hash in (get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()):
     query_tuples.append((word_hash,))
-    cur_dict = dict()
     for _ in cur.execute('SELECT 1 FROM match WHERE id=?', (word_hash,)):
       with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
         size, = struct.unpack('I', blob.read(4))
@@ -399,19 +396,12 @@ def search(words, limit, offset):
         int_list = varint_dec(buf)
         assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
         for i in range(0, len(int_list), 3):
-          cur_dict[int_list[i]] = int_list[i+1]
           search_tuples.append((word_hash, int_list[i], int_list[i+1]))
-      break
-    matches.append(cur_dict)
 
   with conn:  
     cur.executemany('INSERT INTO search.match(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
     cur.executemany('INSERT INTO search.query(word_hash) VALUES (?)', query_tuples)
 
-  # This will need to be added after the INNER JOIN line if eventually the
-  # search temporary table will be persistent, and contains matches for
-  # words that are not part of the search query
-  # WHERE search.match.word_hash IN (SELECT word_hash FROM search.query)
   return cur.execute('''SELECT doc.locator, SUM(search.match.relev), doc.title FROM doc
                         INNER JOIN search.match ON main.doc.id = search.match.doc_id
                         GROUP BY main.doc.id HAVING COUNT(*) = (SELECT COUNT(*) FROM search.query)
