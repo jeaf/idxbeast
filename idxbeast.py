@@ -121,7 +121,7 @@ def create_tables(conn):
   #                - document id
   #                - word count
   #                - average index
-  sql('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, matches_blob BLOB NOT NULL)')
+  sql('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, size INTEGER NOT NULL, matches_blob BLOB NOT NULL)')
 
   # doc
   #
@@ -388,9 +388,8 @@ def search(words, limit, offset):
   # Get all the matches blobs from the DB and expand them into the temporary search table
   search_tuples = []
   query_word_hashes = [(get_word_hash(w),) for w in unidecode.unidecode(words).translate(translate_table).split()]
-  for (word_hash,) in cur.executemany('SELECT id FROM match WHERE id=?', query_word_hashes):
+  for size,word_hash in cur.executemany('SELECT size,id FROM match WHERE id=?', query_word_hashes):
     with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
-      size, = struct.unpack('I', blob.read(4))
       buf = bytearray(size)
       blob.readinto(buf, 0, size)
       int_list = varint_dec(buf)
@@ -554,47 +553,47 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
 
     # Figure out which word_hash are present in the DB, and which are not
     shared_data_array[i].status = 'select'
-    wh_in_db = set(wh for (wh,) in conn.cursor().executemany('SELECT id FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
-    wh_new   = set(words.keys()).difference(wh_in_db)
+    wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
+    wh_new   = set(words.keys()).difference(wh_in_db.keys())
 
     # Create the new tuples for new words
     shared_data_array[i].status = 'new'
     tuples_new = []
     for wh in wh_new:
       enc_matches = words[wh]
-      tuples_new.append((wh, struct.pack('I', len(enc_matches)) + enc_matches))
+      tuples_new.append((wh, len(enc_matches), enc_matches))
 
     # Process existing words
-    shared_data_array[i].status = 'blob I/O'
-    tuples_upd = []
+    shared_data_array[i].status = 'blob I/O ({})'.format(len(wh_in_db))
+    tuples_upd  = []
+    tuples_size = []
     blob = None
-    for word_hash in wh_in_db:
+    for word_hash, old_size in wh_in_db.iteritems():
       enc_matches = words[word_hash]
       if blob:
         blob.reopen(word_hash)
       else:
         blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
-      old_size, = struct.unpack('I', blob.read(4))
       new_size  = old_size + len(enc_matches)
-      if 4 + new_size <= blob.length():
-        blob.seek(0)
-        blob.write(struct.pack('I', new_size))
-        blob.seek(4 + old_size)
+      if new_size <= blob.length():
+        blob.seek(old_size)
         blob.write(enc_matches)
+        tuples_size.append((new_size, word_hash))
       else:
-        buf = bytearray(3 * (4 + new_size))
-        struct.pack_into('I', buf, 0, new_size)
-        blob.readinto(buf, 4, old_size)
-        memoryview(buf)[4 + old_size: 4 + new_size] = enc_matches
-        tuples_upd.append((buf, word_hash))
+        buf = bytearray(2 * new_size)
+        blob.readinto(buf, 0, old_size)
+        memoryview(buf)[old_size: new_size] = enc_matches
+        tuples_upd.append((new_size, buf, word_hash))
     if blob:
       blob.close()
 
     # Insert and update rows in the DB
-    shared_data_array[i].status = 'insert matches'
-    conn.cursor().executemany("INSERT INTO match ('id', 'matches_blob') VALUES (?,?)", tuples_new)
-    shared_data_array[i].status = 'update matches'
-    conn.cursor().executemany('UPDATE match SET matches_blob=? WHERE id=?', tuples_upd)
+    shared_data_array[i].status = 'insert matches ({})'.format(len(tuples_new))
+    conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
+    shared_data_array[i].status = 'update matches ({})'.format(len(tuples_upd))
+    conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
+    shared_data_array[i].status = 'update sizes ({})'.format(len(tuples_size))
+    conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
 
     # Delete outdated documents
     if len(doc_ids_to_delete) > 0:
