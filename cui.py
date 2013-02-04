@@ -1,6 +1,7 @@
 import ctypes
 import msvcrt
 import sys
+import time
 import win32console
 
 class COORD(ctypes.Structure):
