@@ -244,7 +244,7 @@ class Item(object):
     if self.callback:
       self.callback(self)
     self.actions = self.actions[1:] + self.actions[0]
-    cio.putchxy(4, self.lineNumber, self.actions[0])
+    putchxy(4, self.lineNumber, self.actions[0])
     return False if self.toggle else True
   def getLine(self):
     line = ' ' + self.flag + ' '
