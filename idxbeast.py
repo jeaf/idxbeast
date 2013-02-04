@@ -143,7 +143,7 @@ def create_tables(conn):
          mtime           INTEGER,
          title           TEXT,
          extension       TEXT,
-         content_indexed INTEGER DEFAULT 1,
+         title_only      INTEGER DEFAULT 0,
          size            INTEGER,
          word_cnt        INTEGER NOT NULL,
          unique_word_cnt INTEGER NOT NULL,
@@ -152,8 +152,7 @@ def create_tables(conn):
 
 # Constants
 doctype_file  = 1
-doctype_dir   = 2
-doctype_email = 3 
+doctype_email = 2
 
 # Initialize data dir, creating it if necessary
 data_dir = os.path.expanduser(ur'~\.idxbeast')
@@ -279,20 +278,20 @@ class Document(object):
 
 class File(Document):
   def __init__(self, path):
-    self.type_           = doctype_file
-    self.locator         = os.path.abspath(path)
-    self.mtime           = os.path.getmtime(self.locator)
-    self.title           = None
-    root, ext            = os.path.splitext(self.locator)
-    self.extension       = ext
-    self.content_indexed = is_file_handled(self.locator)
-    self.size            = os.path.getsize(self.locator)
-    self.from_           = None
-    self.to_             = None
+    self.type_      = doctype_file
+    self.locator    = os.path.abspath(path)
+    self.mtime      = os.path.getmtime(self.locator)
+    self.title      = None
+    root, ext       = os.path.splitext(self.locator)
+    self.extension  = ext[1:] if ext.startswith('.') else ext
+    self.title_only = not is_file_handled(self.locator)
+    self.size       = os.path.getsize(self.locator)
+    self.from_      = None
+    self.to_        = None
   def __repr__(self):
     return '<File ' + ' ' + self.locator + '>'
   def get_text(self):
-    if self.content_indexed:
+    if not self.title_only:
       with open(self.locator, 'r') as f:
         return ''.join((self.locator, ' ', f.read()))
     else:
@@ -611,8 +610,8 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
 
     # Insert new/updated documents
     shared_data_array[i].status = 'insert docs'
-    tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.content_indexed, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
-    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','content_indexed','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
+    tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
+    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
 
     # Right before going out of the current scope, set the status to commit.
     # When the scope ends, the COMMIT will take place because of the context
