@@ -286,16 +286,18 @@ class File(Document):
   def __repr__(self):
     return '<File ' + ' ' + self.locator + '>'
   def get_text(self):
-    with open(self.locator, 'r') as f:
-      return ''.join((self.locator, ' ', f.read()))
+    if is_file_handled(self.locator):
+      with open(self.locator, 'r') as f:
+        return ''.join((self.locator, ' ', f.read()))
+    else:
+      return self.locator
 
 def iterfiles(rootdir):
   for dirpath, dirnames, filenames in os.walk(rootdir):
     for name in filenames:
       name = os.path.join(dirpath, name)
       try:
-        if is_file_handled(name):
-          yield File(name), None
+        yield File(name), None
       except Exception, ex:
         yield name, ex
 
@@ -372,7 +374,7 @@ class MenuDoc(object):
     self.disp_str = u'[{}] {}'.format(self.relev, self.title)
   def activate(self):
     if os.path.isfile(self.locator):
-      subprocess.Popen(['notepad.exe', self.locator])
+      os.startfile(self.locator)
     else:
       outlook = win32com.client.Dispatch('Outlook.Application')
       mapi = outlook.GetNamespace('MAPI')
