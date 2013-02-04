@@ -5,7 +5,7 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
-Copyright (c) 2012, Francois Jeannotte.
+Copyright (c) 2013, Francois Jeannotte.
 """
 
 import apsw
@@ -27,93 +27,9 @@ import traceback
 
 import unidecode
 import win32com.client
-import win32console
 import yaml
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'pysak'))
-import menu
-
-class COORD(ctypes.Structure):
-  _fields_ = [("x", ctypes.c_short),
-              ("y", ctypes.c_short)]
-
-class SMALL_RECT(ctypes.Structure):
-  _fields_ = [("left"  , ctypes.c_short),
-              ("top"   , ctypes.c_short),
-              ("right" , ctypes.c_short),
-              ("bottom", ctypes.c_short)]
-
-class CONSOLE_SCREEN_BUFFER_INFO(ctypes.Structure):
-  _fields_ = [("dwSize"             , COORD),
-              ("dwCursorPosition"   , COORD), 
-              ("wAttributes"        , ctypes.c_ushort), 
-              ("srWindow"           , SMALL_RECT), 
-              ("dwMaximumWindowSize", COORD)]
-
-k32 = ctypes.windll.kernel32
-stdout = k32.GetStdHandle(-11)
-
-def getcurpos():
-  """
-  Returns the cursor position as a COORD.
-  """
-  conInfo = CONSOLE_SCREEN_BUFFER_INFO()
-  k32.GetConsoleScreenBufferInfo(stdout, ctypes.byref(conInfo)) 
-  return conInfo.dwCursorPosition
-
-def setcurpos(x, y):
-  """
-  Sets the cursor position.
-  """
-  k32.SetConsoleCursorPosition(stdout, COORD(x, y))
-
-def get_console_size():
-  """ Returns a (X, Y) tuple. """
-  h = win32console.GetStdHandle(win32console.STD_OUTPUT_HANDLE)
-  x = h.GetConsoleScreenBufferInfo()['MaximumWindowSize'].X
-  y = h.GetConsoleScreenBufferInfo()['MaximumWindowSize'].Y
-  return (x,y)
-
-def set_text_color(colors=None):
-  """
-  Sets the text color on the console. Calling this function with None (the
-  default) will restore default colors. The colors must be a iterable of
-  strings.
-  """
-
-  flags = 0
-
-  # If colors is None, use defaults colors
-  if not colors:
-    flags = win32console.FOREGROUND_BLUE | win32console.FOREGROUND_GREEN | win32console.FOREGROUND_RED
-
-  # colors is set, process it
-  else:
-
-    # If colors is a single string, use this as the single flag
-    if isinstance(colors, basestring):
-      flags = win32console.__dict__[colors]
-
-    # Otherwise, consider colors a list of strings
-    else:
-      for color in colors:
-        flags = flags | win32console.__dict__[color]
-
-  # Set the color
-  h = win32console.GetStdHandle(win32console.STD_OUTPUT_HANDLE)
-  h.SetConsoleTextAttribute(flags)
-
-def write_color(text, colors, endline=False):
-  """
-  Prints the specified text, without endline, with the specified colors.
-  After printing, the default color is restored.
-  """
-  text = unicode(text)
-  set_text_color(colors)
-  sys.stdout.write(text.encode('cp850'))
-  if endline:
-    sys.stdout.write('\n')
-  set_text_color()
+import cui
 
 def varint_enc(int_list):
   """
@@ -713,10 +629,10 @@ def main():
     total, cur = search(sys.argv[2], 20, 0)
     elapsed_time = time.clock() - start_time
     print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
-    syncMenu = menu.Menu()
+    syncMenu = cui.Menu()
     for locator, relev, title in cur:
       disp_str = '[{}] {}'.format(relev, title if title else locator)
-      syncMenu.addItem(menu.Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
+      syncMenu.addItem(cui.Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
     if syncMenu.items:
       res = syncMenu.show(sort=True)
       if not res:
@@ -747,11 +663,11 @@ def main():
     disp.start()
 
     # Wait for indexing to complete, update status
-    curpos = getcurpos()
-    c_width = get_console_size()[0] - 10
+    curpos = cui.getcurpos()
+    c_width = cui.get_console_size()[0] - 10
     while dsd.status != 'Idle':
       time.sleep(0.05)
-      setcurpos(curpos.x, curpos.y)
+      cui.setcurpos(curpos.x, curpos.y)
       print
       print '-'*c_width
       print 'status  : {}'.format(str_fill(dsd.status, c_width-18))
@@ -774,7 +690,7 @@ def main():
           col = 'FOREGROUND_RED'
         else:
           col = None
-        write_color(str_fill(dat.status, 25), col, endline=True)
+        cui.write_color(str_fill(dat.status, 25), col, endline=True)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
