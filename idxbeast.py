@@ -17,7 +17,6 @@ import itertools
 import logging
 import logging.handlers
 import multiprocessing as mt
-import operator
 import os
 import string
 import struct
