@@ -32,7 +32,6 @@ import yaml
 sys.path.append(os.path.join(os.path.dirname(__file__), 'pysak'))
 import cio
 import menu
-import util
 
 def varint_enc(int_list):
   """
@@ -293,9 +292,14 @@ class File(Document):
       return ''.join((self.locator, ' ', f.read()))
 
 def iterfiles(rootdir):
-  assert os.path.isdir(rootdir), rootdir
-  for f, error in util.walkdir(rootdir, maxdepth=9999, listdirs=False, file_filter=is_file_handled, file_wrapper=File):
-    yield f, error
+  for dirpath, dirnames, filenames in os.walk(rootdir):
+    for name in filenames:
+      name = os.path.join(dirpath, name)
+      try:
+        if is_file_handled(name):
+          yield File(name), None
+      except Exception, ex:
+        yield name, ex
 
 class OutlookEmail(Document):
   """
