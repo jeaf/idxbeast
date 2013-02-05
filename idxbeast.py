@@ -425,8 +425,7 @@ def search(words, limit, offset):
 class IndexerSharedData(ctypes.Structure):
   _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
               ('doc_done_count', ctypes.c_int     ),
-              ('current_doc'   , ctypes.c_char*380),
-              ('bundle_size'   , ctypes.c_int     )]
+              ('current_doc'   , ctypes.c_char*380)]
 
 class DispatcherSharedData(ctypes.Structure):
   _fields_ = [('status'          , ctypes.c_char*40),
@@ -459,24 +458,21 @@ def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lo
 
 def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
-  # Create the worker processes slots
-  worker_procs = [None for s in indexer_shared_data_array]
+  # Create the document queue and indexer processes
+  doc_queue = mt.JoinableQueue()
+  worker_procs = [mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, doc_queue)) for i in range(len(indexer_shared_data_array))]
+  for p in worker_procs: p.start()
 
   # Read the entire document DB in memory
   dispatcher_shared_data.status = 'Load initial document list'
   initial_docs = dict()
-  sql = apsw.Connection(db_path).cursor().execute
   next_doc_id = 0
-  for id,locator,mtime in sql('SELECT id,locator,mtime FROM doc'):
+  for id,locator,mtime in apsw.Connection(db_path).cursor().execute('SELECT id,locator,mtime FROM doc'):
     initial_docs[locator] = id,mtime
     next_doc_id = max(next_doc_id, id)
   next_doc_id += 1
 
-  # Create DB lock
-  db_lock = mt.Lock()
-
   # List all documents
-  updated_docs   = []
   chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir)) for rootdir   in cfg.indexed_dirs         )
   chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in cfg.indexed_email_folders)
   chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in cfg.indexed_urls         )
@@ -501,46 +497,36 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
           dispatcher_shared_data.new_count += 1
         doc.id = next_doc_id
         next_doc_id += 1
-        updated_docs.append(doc)
+        doc_queue.put(doc)
       else:
         dispatcher_shared_data.uptodate_count += 1
 
-      # If we reached the bundle size, dispatch
-      if len(updated_docs) >= cfg.doc_bundle_size:
-        dispatcher_shared_data.status = 'Waiting for free indexer slot'
-        dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock)
-        updated_docs = []
-        
     except Exception, ex:
       log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
 
-  # Final flush
-  if len(updated_docs) >= 0:
-    dispatcher_shared_data.status = 'Waiting for free indexer slot'
-    dispatcher_proc_flush(indexer_shared_data_array, worker_procs, updated_docs, db_lock)
-    updated_docs = []
-
   # Wait on indexer processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
-  [p.join() for p in worker_procs if p]
+  doc_queue.put(None)
+  doc_queue.join()
+  for p in worker_procs: p.join()
   dispatcher_shared_data.status = 'Idle'
 
-def indexer_proc(i, shared_data_array, bundle, db_lock):
+def indexer_proc(i, shared_data_array, doc_queue):
 
   # Index documents
-  assert len(bundle) > 0
   shared_data_array[i].status      = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
-  shared_data_array[i].bundle_size    = len(bundle)
   words = collections.defaultdict(list)
   docs_new          = []
-  doc_ids_to_delete = []
-  for doc in bundle:
+  #doc_ids_to_delete = []
+  for doc in iter(doc_queue.get, None):
+
+    # Index the current document
     shared_data_array[i].current_doc = doc.title if doc.title else doc.locator
     docs_new.append(doc)
-    if hasattr(doc, 'old_id'):
-      doc_ids_to_delete.append((doc.old_id,))
+    #if hasattr(doc, 'old_id'):
+    #  doc_ids_to_delete.append((doc.old_id,))
     doc.word_cnt = 0
     doc.unique_word_cnt = 0
     for w,cnt,avg_idx in doc.index():
@@ -549,10 +535,10 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
       doc.unique_word_cnt += 1
     shared_data_array[i].doc_done_count += 1
 
-  # Encode matches
-  shared_data_array[i].status = 'encoding'
-  for wh, matches_list in words.iteritems():
-    words[wh] = varint_enc(matches_list)
+    # Encode matches for the current document
+    shared_data_array[i].status = 'encoding'
+    for wh, matches_list in words.iteritems():
+      words[wh] = varint_enc(matches_list)
 
   # Flush words
   shared_data_array[i].status = 'locked'
@@ -621,7 +607,6 @@ def indexer_proc(i, shared_data_array, bundle, db_lock):
   shared_data_array[i].status = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
-  shared_data_array[i].bundle_size    = 0
 
 def main():
 
@@ -690,7 +675,7 @@ def main():
         dat = indexer_shared_data_array[i]
         done_percentage = 0
         print ' {:>4} / {:>4}  | {:>75} | '.format(
-        dat.doc_done_count, dat.bundle_size, str_fill(dat.current_doc, 75)),
+        dat.doc_done_count, 'tbd', str_fill(dat.current_doc, 75)),
         if dat.status == 'writing':
           col = 'FOREGROUND_GREEN'
         elif dat.status == 'locked':
