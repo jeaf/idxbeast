@@ -5,6 +5,8 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
+todo: manage the deletion of old documents after indexing existing doc
+
 Copyright (c) 2013, Francois Jeannotte.
 """
 
@@ -173,10 +175,12 @@ class Document(object):
         lst = words.setdefault(w, [0,0])
         lst[0] += 1
         lst[1] += i
-      return [(get_word_hash(w), lst[0], lst[1]/lst[0]) for w,lst in words.iteritems()]
+      self.word_cnt        = i + 1
+      self.unique_word_cnt = len(words)
+      self.words = dict((get_word_hash(w), varint.encode([self.id, lst[0], lst[1]])) for w,lst in words.iteritems())
     except Exception, ex:
       log.warning('Exception while processing {}, exception: {}'.format(self, ex))
-      return []
+      self.words = dict()
 
 class File(Document):
   def __init__(self, path):
@@ -346,24 +350,15 @@ dispatcher_shared_data.status = 'Idle'
 for dat in indexer_shared_data_array:
   dat.status = ''
 
-def dispatcher_proc_flush(indexer_shared_data_array, worker_procs, bundle, db_lock):
-  if len(bundle) == 0:
-    return
-  for i in itertools.cycle(range(len(worker_procs))):
-    if worker_procs[i] and worker_procs[i].is_alive():
-      time.sleep(0.01)
-    else:
-      worker_procs[i] = mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, bundle, db_lock))
-      worker_procs[i].start()
-      del bundle[:]
-      return
-
 def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
-  # Create the document queue and indexer processes
-  doc_queue = mt.JoinableQueue()
-  worker_procs = [mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, doc_queue)) for i in range(len(indexer_shared_data_array))]
+  # Create the document queue and worker processes
+  index_q = mt.JoinableQueue()
+  db_q    = mt.JoinableQueue()
+  worker_procs = [mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, index_q, db_q)) for i in range(len(indexer_shared_data_array))]
   for p in worker_procs: p.start()
+  dbwriter_p = mt.Process(target=dbwriter_proc, args=(db_q,))
+  dbwriter_p.start()
 
   # Read the entire document DB in memory
   dispatcher_shared_data.status = 'Load initial document list'
@@ -399,116 +394,114 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
           dispatcher_shared_data.new_count += 1
         doc.id = next_doc_id
         next_doc_id += 1
-        doc_queue.put(doc)
+        index_q.put(doc)
       else:
         dispatcher_shared_data.uptodate_count += 1
 
     except Exception, ex:
       log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
 
-  # Wait on indexer processes
+  # Wait on worker processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
-  for i in range(len(worker_procs)): doc_queue.put(None)
-  doc_queue.join()
+  for i in range(len(worker_procs)): index_q.put(None)
+  index_q.join()
   for p in worker_procs: p.join()
+  dispatcher_shared_data.status = 'Waiting on db writer process'
+  db_q.put(None)
+  db_q.join()
+  dbwriter_p.join()
   dispatcher_shared_data.status = 'Idle'
 
-def indexer_proc(i, shared_data_array, doc_queue):
+def dbwriter_proc(db_q):
+
+  for doc in iter(db_q.get, None):
+    print 'Writing {} in DB'.format(doc)
+    db_q.task_done()
+
+  # One last task_done for the last None
+  db_q.task_done()
+
+def indexer_proc(i, shared_data_array, index_q, db_q):
 
   # Index documents
   shared_data_array[i].status      = ''
   shared_data_array[i].doc_done_count = 0
   shared_data_array[i].current_doc    = ''
-  words = collections.defaultdict(list)
-  docs_new          = []
-  #doc_ids_to_delete = []
-  for doc in iter(doc_queue.get, None):
-
-    # Index the current document
+  for doc in iter(index_q.get, None):
     shared_data_array[i].current_doc = doc.title if doc.title else doc.locator
-    docs_new.append(doc)
-    #if hasattr(doc, 'old_id'):
-    #  doc_ids_to_delete.append((doc.old_id,))
-    doc.word_cnt = 0
-    doc.unique_word_cnt = 0
-    for w,cnt,avg_idx in doc.index():
-      words[w].extend((doc.id,cnt,avg_idx))
-      doc.word_cnt += cnt
-      doc.unique_word_cnt += 1
+    #doc.index():
+    print 'Indexing {}'.format(doc)
     shared_data_array[i].doc_done_count += 1
+    db_q.put(doc)
+    index_q.task_done()
 
-    # Encode matches for the current document
-    shared_data_array[i].status = 'encoding'
-    for wh, matches_list in words.iteritems():
-      words[wh] = varint.encode(matches_list)
+  # One last task_done for the last None
+  index_q.task_done()
 
-  # Flush words
-  shared_data_array[i].status = 'locked'
+  #with db_lock, apsw.Connection(db_path) as conn:
 
-  with db_lock, apsw.Connection(db_path) as conn:
+  #  # Figure out which word_hash are present in the DB, and which are not
+  #  shared_data_array[i].status = 'select'
+  #  wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
+  #  wh_new   = set(words.keys()).difference(wh_in_db.keys())
 
-    # Figure out which word_hash are present in the DB, and which are not
-    shared_data_array[i].status = 'select'
-    wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
-    wh_new   = set(words.keys()).difference(wh_in_db.keys())
+  #  # Create the new tuples for new words
+  #  shared_data_array[i].status = 'new'
+  #  tuples_new = []
+  #  for wh in wh_new:
+  #    enc_matches = words[wh]
+  #    tuples_new.append((wh, len(enc_matches), enc_matches))
 
-    # Create the new tuples for new words
-    shared_data_array[i].status = 'new'
-    tuples_new = []
-    for wh in wh_new:
-      enc_matches = words[wh]
-      tuples_new.append((wh, len(enc_matches), enc_matches))
+  #  # Process existing words
+  #  shared_data_array[i].status = 'blob I/O ({})'.format(len(wh_in_db))
+  #  tuples_upd  = []
+  #  tuples_size = []
+  #  blob = None
+  #  for word_hash, old_size in wh_in_db.iteritems():
+  #    enc_matches = words[word_hash]
+  #    if blob:
+  #      blob.reopen(word_hash)
+  #    else:
+  #      blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
+  #    new_size  = old_size + len(enc_matches)
+  #    if new_size <= blob.length():
+  #      blob.seek(old_size)
+  #      blob.write(enc_matches)
+  #      tuples_size.append((new_size, word_hash))
+  #    else:
+  #      buf = bytearray(2 * new_size)
+  #      blob.readinto(buf, 0, old_size)
+  #      memoryview(buf)[old_size: new_size] = enc_matches
+  #      tuples_upd.append((new_size, buf, word_hash))
+  #  if blob:
+  #    blob.close()
 
-    # Process existing words
-    shared_data_array[i].status = 'blob I/O ({})'.format(len(wh_in_db))
-    tuples_upd  = []
-    tuples_size = []
-    blob = None
-    for word_hash, old_size in wh_in_db.iteritems():
-      enc_matches = words[word_hash]
-      if blob:
-        blob.reopen(word_hash)
-      else:
-        blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
-      new_size  = old_size + len(enc_matches)
-      if new_size <= blob.length():
-        blob.seek(old_size)
-        blob.write(enc_matches)
-        tuples_size.append((new_size, word_hash))
-      else:
-        buf = bytearray(2 * new_size)
-        blob.readinto(buf, 0, old_size)
-        memoryview(buf)[old_size: new_size] = enc_matches
-        tuples_upd.append((new_size, buf, word_hash))
-    if blob:
-      blob.close()
+  #  # Insert and update rows in the DB
+  #  shared_data_array[i].status = 'insert matches ({})'.format(len(tuples_new))
+  #  conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
+  #  shared_data_array[i].status = 'update matches ({})'.format(len(tuples_upd))
+  #  conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
+  #  shared_data_array[i].status = 'update sizes ({})'.format(len(tuples_size))
+  #  conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
 
-    # Insert and update rows in the DB
-    shared_data_array[i].status = 'insert matches ({})'.format(len(tuples_new))
-    conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
-    shared_data_array[i].status = 'update matches ({})'.format(len(tuples_upd))
-    conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
-    shared_data_array[i].status = 'update sizes ({})'.format(len(tuples_size))
-    conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
+  #  # Delete outdated documents
+  #  if len(doc_ids_to_delete) > 0:
+  #    shared_data_array[i].status = 'delete docs'
+  #    conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
 
-    # Delete outdated documents
-    if len(doc_ids_to_delete) > 0:
-      shared_data_array[i].status = 'delete docs'
-      conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
+  #  # Insert new/updated documents
+  #  shared_data_array[i].status = 'insert docs'
+  #  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
+  #  conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
 
-    # Insert new/updated documents
-    shared_data_array[i].status = 'insert docs'
-    tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
-    conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
+  #  # Right before going out of the current scope, set the status to commit.
+  #  # When the scope ends, the COMMIT will take place because of the context
+  #  # manager.
+  #  shared_data_array[i].status = 'commit'
 
-    # Right before going out of the current scope, set the status to commit.
-    # When the scope ends, the COMMIT will take place because of the context
-    # manager.
-    shared_data_array[i].status = 'commit'
-
-  shared_data_array[i].status = ''
-  shared_data_array[i].doc_done_count = 0
-  shared_data_array[i].current_doc    = ''
+  #shared_data_array[i].status = ''
+  #shared_data_array[i].doc_done_count = 0
+  #shared_data_array[i].current_doc    = ''
 
 def main():
 
