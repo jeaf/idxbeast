@@ -4,6 +4,31 @@ import sys
 import time
 import win32console
 
+def str_fill(s, length):
+  """
+  Truncates a string to the given length, using an ellipsis (...) in the
+  middle if necessary.
+
+  >>> str_fill('abcdefghijklmnopqrstuvwxyz', 15)
+  'abcdef...uvwxyz'
+  >>> str_fill('abcdef', 15)
+  'abcdef         '
+  """
+  assert length > 0
+  s = str(s)
+  if len(s) == length:
+    return s
+  if len(s) > length:
+    if length < 9:
+      s = s[-length:]
+    else:
+      q,r = divmod(length-3, 2)
+      s = s[0:q] + '...' + s[-(q+r):]
+  if len(s) < length:
+    s = s + ' '*(length - len(s))
+  assert len(s) == length, 'len(s): {}, length:{}'.format(len(s), length)
+  return s
+
 class COORD(ctypes.Structure):
   _fields_ = [("x", ctypes.c_short),
               ("y", ctypes.c_short)]

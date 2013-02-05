@@ -130,31 +130,6 @@ class cfg(object):
   indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
   indexed_urls          = cfg_obj.get('indexed_urls', [])
 
-def str_fill(s, length):
-  """
-  Truncates a string to the given length, using an ellipsis (...) in the
-  middle if necessary.
-
-  >>> str_fill('abcdefghijklmnopqrstuvwxyz', 15)
-  'abcdef...uvwxyz'
-  >>> str_fill('abcdef', 15)
-  'abcdef         '
-  """
-  assert length > 0
-  s = str(s)
-  if len(s) == length:
-    return s
-  if len(s) > length:
-    if length < 9:
-      s = s[-length:]
-    else:
-      q,r = divmod(length-3, 2)
-      s = s[0:q] + '...' + s[-(q+r):]
-  if len(s) < length:
-    s = s + ' '*(length - len(s))
-  assert len(s) == length, 'len(s): {}, length:{}'.format(len(s), length)
-  return s
-
 # Create the translation table used with the str.translate method. This will
 # replace all uppercase chars with their lowercase equivalent, and numbers
 # and "_" are passed-through as is. All other chars are replaced with a
@@ -433,7 +408,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
   # Wait on indexer processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
-  doc_queue.put(None)
+  for i in range(len(worker_procs)): doc_queue.put(None)
   doc_queue.join()
   for p in worker_procs: p.join()
   dispatcher_shared_data.status = 'Idle'
@@ -589,10 +564,10 @@ def main():
       cui.setcurpos(curpos.x, curpos.y)
       print
       print '-'*c_width
-      print 'status  : {}'.format(str_fill(dsd.status, c_width-18))
-      print str_fill('counts  : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
+      print 'status  : {}'.format(cui.str_fill(dsd.status, c_width-18))
+      print cui.str_fill('counts  : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
       dsd.listed_count, dsd.uptodate_count, dsd.outdated_count, dsd.new_count), c_width-18)
-      print 'document: {}'.format(str_fill(dsd.current_doc, c_width-18))
+      print 'document: {}'.format(cui.str_fill(dsd.current_doc, c_width-18))
       print
       print '-'*c_width
       header = ' {:^12} | {:^75} | {:^25}'.format('Progress', 'Document', 'Status')
@@ -602,14 +577,14 @@ def main():
         dat = indexer_shared_data_array[i]
         done_percentage = 0
         print ' {:>4} / {:>4}  | {:>75} | '.format(
-        dat.doc_done_count, 'tbd', str_fill(dat.current_doc, 75)),
+        dat.doc_done_count, 'tbd', cui.str_fill(dat.current_doc, 75)),
         if dat.status == 'writing':
           col = 'FOREGROUND_GREEN'
         elif dat.status == 'locked':
           col = 'FOREGROUND_RED'
         else:
           col = None
-        cui.write_color(str_fill(dat.status, 25), col, endline=True)
+        cui.write_color(cui.str_fill(dat.status, 25), col, endline=True)
       print '-'*c_width
 
     elapsed_time = time.clock() - start_time
