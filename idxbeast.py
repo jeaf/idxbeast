@@ -426,8 +426,8 @@ def dbwriter_proc(db_q, dispatcher_shared_data):
     docs              = []
     doc_ids_to_delete = []
     try:
-      while True:
-        doc = db_q.get(True, 1)
+      while True and len(docs) < 10000:
+        doc = db_q.get(True, 0.25)
         if doc:
           docs.append(doc)
           if hasattr(doc, 'old_id'):
@@ -437,8 +437,6 @@ def dbwriter_proc(db_q, dispatcher_shared_data):
           break
     except Queue.Empty:
       pass
-
-    log.debug('got {} docs from queue'.format(len(docs)))
 
     # Merge the matches from all the documents
     words = collections.defaultdict(bytearray)
@@ -506,7 +504,7 @@ def dbwriter_proc(db_q, dispatcher_shared_data):
       # Right before going out of the current scope, set the status to commit.
       # When the scope ends, the COMMIT will take place because of the context
       # manager.
-      dispatcher_shared_data.db_status = 'commit'
+      dispatcher_shared_data.db_status = 'committing {} documents'.format(len(docs))
 
   dispatcher_shared_data.db_status = ''
   dispatcher_shared_data.doc_done_count = 0
