@@ -20,6 +20,7 @@ import logging
 import logging.handlers
 import multiprocessing as mt
 import os
+import Queue
 import string
 import struct
 import subprocess
@@ -334,13 +335,14 @@ class IndexerSharedData(ctypes.Structure):
               ('current_doc'   , ctypes.c_char*380)]
 
 class DispatcherSharedData(ctypes.Structure):
-  _fields_ = [('status'          , ctypes.c_char*40),
-              ('listed_count'    , ctypes.c_int    ),
-              ('uptodate_count'  , ctypes.c_int    ),
-              ('outdated_count'  , ctypes.c_int    ),
-              ('new_count'       , ctypes.c_int    ),
-              ('error_count'     , ctypes.c_int    ),
-              ('current_doc'     , ctypes.c_char*380)]
+  _fields_ = [('status'          , ctypes.c_char*40 ),
+              ('listed_count'    , ctypes.c_int     ),
+              ('uptodate_count'  , ctypes.c_int     ),
+              ('outdated_count'  , ctypes.c_int     ),
+              ('new_count'       , ctypes.c_int     ),
+              ('error_count'     , ctypes.c_int     ),
+              ('current_doc'     , ctypes.c_char*380),
+              ('db_status'       , ctypes.c_char*40 )]
 
 # Create shared mem used when indexing. The size of the indexer array
 # will determine the number of indexer worker processes
@@ -353,11 +355,11 @@ for dat in indexer_shared_data_array:
 def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
   # Create the document queue and worker processes
-  index_q = mt.JoinableQueue()
-  db_q    = mt.JoinableQueue()
+  index_q = mt.Queue()
+  db_q    = mt.Queue()
   worker_procs = [mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, index_q, db_q)) for i in range(len(indexer_shared_data_array))]
   for p in worker_procs: p.start()
-  dbwriter_p = mt.Process(target=dbwriter_proc, args=(db_q,))
+  dbwriter_p = mt.Process(target=dbwriter_proc, args=(db_q, dispatcher_shared_data))
   dbwriter_p.start()
 
   # Read the entire document DB in memory
@@ -404,22 +406,111 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
   # Wait on worker processes
   dispatcher_shared_data.status = 'Waiting on indexer processes'
   for i in range(len(worker_procs)): index_q.put(None)
-  index_q.join()
   for p in worker_procs: p.join()
   dispatcher_shared_data.status = 'Waiting on db writer process'
   db_q.put(None)
-  db_q.join()
   dbwriter_p.join()
   dispatcher_shared_data.status = 'Idle'
 
-def dbwriter_proc(db_q):
+def dbwriter_proc(db_q, dispatcher_shared_data):
 
-  for doc in iter(db_q.get, None):
-    print 'Writing {} in DB'.format(doc)
-    db_q.task_done()
+  # Connec to the DB
+  conn = apsw.Connection(db_path)
 
-  # One last task_done for the last None
-  db_q.task_done()
+  # Loop on the Queue until the None sentry is received
+  finished = False
+  while not finished:
+
+    # Extract the documents available from the queue
+    dispatcher_shared_data.db_status = 'emptying queue'
+    docs              = []
+    doc_ids_to_delete = []
+    try:
+      while True:
+        doc = db_q.get(True, 1)
+        if doc:
+          docs.append(doc)
+          if hasattr(doc, 'old_id'):
+            doc_ids_to_delete.append((doc.old_id,))
+        else:
+          finished = True
+          break
+    except Queue.Empty:
+      pass
+
+    log.debug('got {} docs from queue'.format(len(docs)))
+
+    # Merge the matches from all the documents
+    words = collections.defaultdict(bytearray)
+    for doc in docs:
+      for wh, buf in doc.words.iteritems():
+        words[wh].extend(buf)
+
+    # Figure out which word_hash are present in the DB, and which are not
+    dispatcher_shared_data.db_status = 'select ({})'.format(len(words))
+    wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
+    wh_new   = set(words.keys()).difference(wh_in_db.keys())
+
+    # Create the new tuples for new words
+    dispatcher_shared_data.db_status = 'new ({})'.format(len(wh_new))
+    tuples_new = []
+    for wh in wh_new:
+      enc_matches = words[wh]
+      tuples_new.append((wh, len(enc_matches), enc_matches))
+
+    # Fire up a transaction
+    with conn:
+
+      # Process existing words
+      dispatcher_shared_data.db_status = 'blob I/O ({})'.format(len(wh_in_db))
+      tuples_upd  = []
+      tuples_size = []
+      blob = None
+      for word_hash, old_size in wh_in_db.iteritems():
+        enc_matches = words[word_hash]
+        if blob:
+          blob.reopen(word_hash)
+        else:
+          blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
+        new_size  = old_size + len(enc_matches)
+        if new_size <= blob.length():
+          blob.seek(old_size)
+          blob.write(enc_matches)
+          tuples_size.append((new_size, word_hash))
+        else:
+          buf = bytearray(2 * new_size)
+          blob.readinto(buf, 0, old_size)
+          memoryview(buf)[old_size: new_size] = enc_matches
+          tuples_upd.append((new_size, buf, word_hash))
+      if blob:
+        blob.close()
+
+      # Insert and update rows in the DB
+      dispatcher_shared_data.db_status = 'insert matches ({})'.format(len(tuples_new))
+      conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
+      dispatcher_shared_data.db_status = 'update matches ({})'.format(len(tuples_upd))
+      conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
+      dispatcher_shared_data.db_status = 'update sizes ({})'.format(len(tuples_size))
+      conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
+
+      # Delete outdated documents
+      if len(doc_ids_to_delete) > 0:
+        dispatcher_shared_data.db_status = 'delete docs ({})'.format(len(doc_ids_to_delete))
+        conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
+
+      # Insert new/updated documents
+      tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
+      dispatcher_shared_data.db_status = 'insert docs ({})'.format(len(tuples))
+      conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
+
+      # Right before going out of the current scope, set the status to commit.
+      # When the scope ends, the COMMIT will take place because of the context
+      # manager.
+      dispatcher_shared_data.db_status = 'commit'
+
+  dispatcher_shared_data.db_status = ''
+  dispatcher_shared_data.doc_done_count = 0
+  dispatcher_shared_data.current_doc    = ''
 
 def indexer_proc(i, shared_data_array, index_q, db_q):
 
@@ -429,79 +520,9 @@ def indexer_proc(i, shared_data_array, index_q, db_q):
   shared_data_array[i].current_doc    = ''
   for doc in iter(index_q.get, None):
     shared_data_array[i].current_doc = doc.title if doc.title else doc.locator
-    #doc.index():
-    print 'Indexing {}'.format(doc)
+    doc.index()
     shared_data_array[i].doc_done_count += 1
     db_q.put(doc)
-    index_q.task_done()
-
-  # One last task_done for the last None
-  index_q.task_done()
-
-  #with db_lock, apsw.Connection(db_path) as conn:
-
-  #  # Figure out which word_hash are present in the DB, and which are not
-  #  shared_data_array[i].status = 'select'
-  #  wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
-  #  wh_new   = set(words.keys()).difference(wh_in_db.keys())
-
-  #  # Create the new tuples for new words
-  #  shared_data_array[i].status = 'new'
-  #  tuples_new = []
-  #  for wh in wh_new:
-  #    enc_matches = words[wh]
-  #    tuples_new.append((wh, len(enc_matches), enc_matches))
-
-  #  # Process existing words
-  #  shared_data_array[i].status = 'blob I/O ({})'.format(len(wh_in_db))
-  #  tuples_upd  = []
-  #  tuples_size = []
-  #  blob = None
-  #  for word_hash, old_size in wh_in_db.iteritems():
-  #    enc_matches = words[word_hash]
-  #    if blob:
-  #      blob.reopen(word_hash)
-  #    else:
-  #      blob = conn.blobopen('main', 'match', 'matches_blob', word_hash, True)
-  #    new_size  = old_size + len(enc_matches)
-  #    if new_size <= blob.length():
-  #      blob.seek(old_size)
-  #      blob.write(enc_matches)
-  #      tuples_size.append((new_size, word_hash))
-  #    else:
-  #      buf = bytearray(2 * new_size)
-  #      blob.readinto(buf, 0, old_size)
-  #      memoryview(buf)[old_size: new_size] = enc_matches
-  #      tuples_upd.append((new_size, buf, word_hash))
-  #  if blob:
-  #    blob.close()
-
-  #  # Insert and update rows in the DB
-  #  shared_data_array[i].status = 'insert matches ({})'.format(len(tuples_new))
-  #  conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
-  #  shared_data_array[i].status = 'update matches ({})'.format(len(tuples_upd))
-  #  conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
-  #  shared_data_array[i].status = 'update sizes ({})'.format(len(tuples_size))
-  #  conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
-
-  #  # Delete outdated documents
-  #  if len(doc_ids_to_delete) > 0:
-  #    shared_data_array[i].status = 'delete docs'
-  #    conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
-
-  #  # Insert new/updated documents
-  #  shared_data_array[i].status = 'insert docs'
-  #  tuples = ((doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs_new)
-  #  conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
-
-  #  # Right before going out of the current scope, set the status to commit.
-  #  # When the scope ends, the COMMIT will take place because of the context
-  #  # manager.
-  #  shared_data_array[i].status = 'commit'
-
-  #shared_data_array[i].status = ''
-  #shared_data_array[i].doc_done_count = 0
-  #shared_data_array[i].current_doc    = ''
 
 def main():
 
@@ -557,10 +578,11 @@ def main():
       cui.setcurpos(curpos.x, curpos.y)
       print
       print '-'*c_width
-      print 'status  : {}'.format(cui.str_fill(dsd.status, c_width-18))
-      print cui.str_fill('counts  : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
+      print 'status   : {}'.format(cui.str_fill(dsd.status, c_width-18))
+      print cui.str_fill('counts   : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
       dsd.listed_count, dsd.uptodate_count, dsd.outdated_count, dsd.new_count), c_width-18)
-      print 'document: {}'.format(cui.str_fill(dsd.current_doc, c_width-18))
+      print 'document : {}'.format(cui.str_fill(dsd.current_doc, c_width-18))
+      print 'DB status: {}'.format(cui.str_fill(dsd.db_status, 40))
       print
       print '-'*c_width
       header = ' {:^12} | {:^75} | {:^25}'.format('Progress', 'Document', 'Status')
@@ -569,8 +591,8 @@ def main():
       for i in range(len(indexer_shared_data_array)):
         dat = indexer_shared_data_array[i]
         done_percentage = 0
-        print ' {:>4} / {:>4}  | {:>75} | '.format(
-        dat.doc_done_count, 'tbd', cui.str_fill(dat.current_doc, 75)),
+        print ' {:>12} | {:>75} | '.format(
+        dat.doc_done_count, cui.str_fill(dat.current_doc, 75)),
         if dat.status == 'writing':
           col = 'FOREGROUND_GREEN'
         elif dat.status == 'locked':
