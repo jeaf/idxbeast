@@ -171,14 +171,16 @@ def is_file_handled(path):
 class Document(object):
   def index(self):
     try:
-      words = dict()
-      for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1):
-        lst = words.setdefault(w, [0,0])
-        lst[0] += 1
-        lst[1] += i
+      words = collections.Counter()
+      current_relev_value = 100
+      for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1 and len(w) < 40):
+        words[w] += current_relev_value
+        if current_relev_value > 0.1:
+          current_relev_value -= 0.1
       self.word_cnt        = i + 1
       self.unique_word_cnt = len(words)
-      self.words = dict((get_word_hash(w), varint.encode([self.id, lst[0], lst[1]])) for w,lst in words.iteritems())
+      encoded_id = varint.encode([self.id])
+      self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
     except Exception, ex:
       log.warning('Exception while processing {}, exception: {}'.format(self, ex))
       self.words = dict()
@@ -277,16 +279,20 @@ def iteremails(folder_filter):
         log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
 
 class MenuDoc(object):
-  def __init__(self, locator, relev, title=None):
+  def __init__(self, locator, relev, title, title_only):
     self.locator = locator
     self.relev = relev
     self.title = title
     if self.title == None:
       self.title = self.locator
+    self.title_only = title_only
     self.disp_str = u'[{}] {}'.format(self.relev, self.title)
   def activate(self):
     if os.path.isfile(self.locator):
-      os.startfile(self.locator)
+      if self.title_only:
+        os.startfile(self.locator)
+      else:
+        subprocess.Popen(['notepad.exe', self.locator])
     else:
       outlook = win32com.client.Dispatch('Outlook.Application')
       mapi = outlook.GetNamespace('MAPI')
@@ -308,8 +314,8 @@ def search(words, limit, offset):
       buf = bytearray(size)
       blob.readinto(buf, 0, size)
       int_list = varint.decode(buf)
-      assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
-      for i in range(0, len(int_list), 3):
+      assert len(int_list) % 2 == 0, 'int_list should contain n groups of doc_id,relev'
+      for i in range(0, len(int_list), 2):
         search_tuples.append((word_hash, int_list[i], int_list[i+1]))
   with conn:  
     cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
@@ -323,7 +329,7 @@ def search(words, limit, offset):
     total = 0
 
   # Return search results
-  return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
+  return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title, doc.title_only FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?
                                ORDER BY SUM(search.relev) DESC
@@ -536,9 +542,9 @@ def main():
     elapsed_time = time.clock() - start_time
     print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
     syncMenu = cui.Menu()
-    for locator, relev, title in cur:
+    for locator, relev, title, title_only in cur:
       disp_str = '[{}] {}'.format(relev, title if title else locator)
-      syncMenu.addItem(cui.Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
+      syncMenu.addItem(cui.Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title, title_only)))
     if syncMenu.items:
       res = syncMenu.show(sort=True)
       if not res:
