@@ -8,7 +8,7 @@ idxbeast is a simple content indexer.
 Dependencies
 ------------
 
-* pysak: https://github.com/jeaf/pysak
+* APSW: http://code.google.com/p/apsw/
 * pywin32: http://sourceforge.net/projects/pywin32
 * PyYAML: http://pyyaml.org/wiki/PyYAML
 
