@@ -1,8 +1,36 @@
 import ctypes
+import datetime
 import msvcrt
+import os
+import os.path
+import subprocess
 import sys
 import time
+
+import win32com
 import win32console
+
+import core
+
+class MenuDoc(object):
+  def __init__(self, locator, relev, title, title_only):
+    self.locator = locator
+    self.relev = relev
+    self.title = title
+    if self.title == None:
+      self.title = self.locator
+    self.title_only = title_only
+    self.disp_str = u'[{}] {}'.format(self.relev, self.title)
+  def activate(self):
+    if os.path.isfile(self.locator):
+      if self.title_only:
+        os.startfile(self.locator)
+      else:
+        subprocess.Popen(['notepad.exe', self.locator])
+    else:
+      outlook = win32com.client.Dispatch('Outlook.Application')
+      mapi = outlook.GetNamespace('MAPI')
+      mapi.GetItemFromId(self.locator).Display()
 
 def str_fill(s, length):
   """
@@ -276,4 +304,83 @@ class Item(object):
     line = line + '[' + self.actions[0] + '] '
     line = line + self.key + ') ' + self.text
     return line
+
+def main():
+
+  # Check if search
+  if len(sys.argv) == 3 and sys.argv[1] == 'search':
+    print 'Executing search...'
+    start_time = time.clock()
+    total, cur = core.search(sys.argv[2], 20, 0)
+    elapsed_time = time.clock() - start_time
+    print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
+    syncMenu = Menu()
+    for locator, relev, title, title_only in cur:
+      disp_str = '[{}] {}'.format(relev, title if title else locator)
+      syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title, title_only)))
+    if syncMenu.items:
+      res = syncMenu.show(sort=True)
+      if not res:
+        return # This means the user pressed ESC in the menu, abort processing
+      selected_docs = []
+      print
+      for item in syncMenu.items:
+        if item.actions[0] == '*':
+          selected_docs.append(item.obj)
+      for selected_doc in selected_docs:
+        selected_doc.activate()
+    else:
+      print 'No results found.'
+    return
+
+  # Run indexing
+  if len(sys.argv) == 2 and sys.argv[1] == 'index':
+
+    # Launch indexing
+    print 'Indexing...'
+    start_time = time.clock()
+    dstat, istat_array = core.start_indexing()
+
+    # Wait for indexing to complete, update status
+    curpos = getcurpos()
+    c_width = get_console_size()[0] - 10
+    while dstat.status != 'Idle':
+      time.sleep(0.05)
+      setcurpos(curpos.x, curpos.y)
+      print
+      print '-'*c_width
+      print 'status   : {}'.format(str_fill(dstat.status, c_width-18))
+      print str_fill('counts   : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
+      dstat.listed_count, dstat.uptodate_count, dstat.outdated_count, dstat.new_count), c_width-18)
+      print 'document : {}'.format(str_fill(dstat.current_doc, c_width-18))
+      print 'DB status: {}'.format(str_fill(dstat.db_status, 40))
+      print
+      print '-'*c_width
+      header = ' {:^12} | {:^75} | {:^25}'.format('Progress', 'Document', 'Status')
+      print header
+      print '-'*c_width
+      for i in range(len(istat_array)):
+        dat = istat_array[i]
+        done_percentage = 0
+        print ' {:>12} | {:>75} | '.format(
+        dat.doc_done_count, str_fill(dat.current_doc, 75)),
+        if dat.status == 'writing':
+          col = 'FOREGROUND_GREEN'
+        elif dat.status == 'locked':
+          col = 'FOREGROUND_RED'
+        else:
+          col = None
+        write_color(str_fill(dat.status, 25), col, endline=True)
+      print '-'*c_width
+
+    elapsed_time = time.clock() - start_time
+    print
+    print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
+    return
+
+  # Unknown command, print usage
+  print 'Usage: idxbeast.py index|search [search string]'
+
+if __name__ == '__main__':
+  main()
 
