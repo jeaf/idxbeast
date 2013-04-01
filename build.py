@@ -1,5 +1,10 @@
 import os.path
 
-c = os.path.expanduser(r'~\app\tcc\tcc.exe hash_64a.c -run test_fnv.c')
-print c
-os.system(c)
+def build():
+  c = os.path.expanduser(r'~\app\tcc\tcc.exe -shared -o idxlib.dll hash_64a.c idxlib.c')
+  print c
+  os.system(c)
+
+if __name__ == '__main__':
+  build()
+
