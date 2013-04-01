@@ -1,3 +1,4 @@
+charmap.c
 *.def
 *.dll
 *.pyc
