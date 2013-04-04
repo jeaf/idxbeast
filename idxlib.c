@@ -7,11 +7,15 @@ extern char charmap[0x10ffff];
 
 typedef struct
 {
+  uint64_t id;
+  unsigned cnt;
+  unsigned avg_idx;
+  bucket* next_buck;
 } bucket;
 
 typedef struct
 {
-  bucket _buckets[bucket_count];
+  bucket bucks[bucket_count];
 } ht;
 
 DLLEXP int fnv(char* s, unsigned* oHashLow, unsigned* oHashHigh)
