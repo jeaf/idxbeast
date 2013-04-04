@@ -1,9 +1,9 @@
 #coding: latin-1
 
 from ctypes import *
+import os
 
-import build
-build.build()
+os.system('make')
 
 lib = cdll.idxlib
 lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]

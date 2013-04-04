@@ -1,9 +1,18 @@
-#include "charmap.c"
 #include "fnv.h"
 
 #define DLLEXP __attribute__((dllexport))
+#define bucket_count 16384
 
 extern char charmap[0x10ffff];
+
+typedef struct
+{
+} bucket;
+
+typedef struct
+{
+  bucket _buckets[bucket_count];
+} ht;
 
 DLLEXP int fnv(char* s, unsigned* oHashLow, unsigned* oHashHigh)
 {
