@@ -17,8 +17,14 @@ print '{0:x} {1:x}'.format(low.value, high.value)
 
 s = "testéà"
 e = s.encode('utf-32')
-lib.index(e, len(s) + 1);
+lib.index(e, len(e) / 4);
 s = ""
 e = s.encode('utf-32')
-lib.index(e, len(s) + 1);
+lib.index(e, len(e) / 4);
+s = "abc ceci testé françois"
+e = s.encode('utf-32')
+lib.index(e, len(e) / 4);
+
+
+lib.test()
 
