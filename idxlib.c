@@ -1,22 +1,57 @@
 #include "fnv.h"
 
 #define DLLEXP __attribute__((dllexport))
-#define bucket_count 16384
+#define hash_bits    18
+#define bucket_count (1 << hash_bits)
+#define hash_mask    (bucket_count - 1)
 
 extern char* charmap[0x10000];
 
 typedef struct
 {
-  uint64_t id;
-  unsigned cnt;
-  unsigned avg_idx;
-  struct bucket* next_buck;
+  uint64_t       id;
+  unsigned       cnt;
+  unsigned       tot_idx;
 } bucket;
 
 typedef struct
 {
-  bucket bucks[bucket_count];
-} ht;
+  bucket buckets[bucket_count];
+  unsigned size;
+} htable;
+
+htable ht;
+
+void ht_init(htable* table)
+{
+  memset(table->buckets, 0, bucket_count * sizeof(bucket));
+  table->size = 0;
+}
+
+bucket* ht_lookup(htable* table, uint64_t key)
+{
+  unsigned hash_index = key & hash_mask;
+  unsigned offset     = 0;
+
+  while (1)
+  {
+    bucket* b = &table->buckets[(hash_index + offset++) % bucket_count];
+
+    // Slot if free, assign and return it
+    if (!b->id)
+    {
+      b->id = key;
+      table->size++;
+      return b;
+    }
+
+    // Slot if the right one, return it
+    if (b->id == key)
+    {
+      return b;
+    }
+  }
+}
 
 DLLEXP int fnv(char* s, unsigned* oHashLow, unsigned* oHashHigh)
 {
@@ -31,12 +66,16 @@ DLLEXP int index(unsigned* utf32, unsigned len)
 {
   printf("idxlib: indexing string of length %u\n", len);
 
+  ht_init(&ht);
+
   // Advance until non-blank char
   while (len && !*charmap[*utf32])
   {
     --len;
     ++utf32;
   }
+
+  unsigned cur_idx = 0;
 
   while (len)
   {
@@ -52,12 +91,28 @@ DLLEXP int index(unsigned* utf32, unsigned len)
 
     // Store info about current word
     printf("hash of current word: %x %x\n", h.w32[0], h.w32[1]);
+    uint64_t key = *h.w32;
+    printf("%u", key);
+    bucket* b = ht_lookup(&ht, key);
+    b->cnt     += 1;
+    b->tot_idx += cur_idx;
+    cur_idx    += 1;
 
     // Advance until non-blank char
     while (len && !*charmap[*utf32])
     {
       --len;
       ++utf32;
+    }
+  }
+
+  // debug print info about words
+  printf("Debug printout of hash table\n");
+  for (unsigned k = 0; k < bucket_count; ++k)
+  {
+    if (ht.buckets[k].id)
+    {
+      printf("id: %u, cnt: %u, tot_idx: %u\n", ht.buckets[k].id, ht.buckets[k].cnt, ht.buckets[k].tot_idx);
     }
   }
 
