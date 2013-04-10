@@ -21,10 +21,14 @@ lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
 #s = u""
 #e = s.encode('utf-32')
 #lib.index(e, len(e) / 4);
-s = u"abc ceci testé abc"
+#s = u"abc ceci testé abc"
+#e = s.encode('utf-32')
+#lib.index(e, len(e) / 4);
+
+with open(ur'C:\cae\pkg\mtfx_ver\main_2.2\core\dev\src\TFX\TfxAfx\GLee.cpp', 'r') as f:
+  s = f.read()
 e = s.encode('utf-32')
 lib.index(e, len(e) / 4);
-
 
 #lib.test()
 

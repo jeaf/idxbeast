@@ -5,13 +5,15 @@
 #define bucket_count (1 << hash_bits)
 #define hash_mask    (bucket_count - 1)
 
+typedef unsigned long long uint64;
+
 extern char* charmap[0x10000];
 
 typedef struct
 {
-  uint64_t       id;
-  unsigned       cnt;
-  unsigned       tot_idx;
+  uint64   id;
+  unsigned cnt;
+  unsigned tot_idx;
 } bucket;
 
 typedef struct
@@ -28,7 +30,7 @@ void ht_init(htable* table)
   table->size = 0;
 }
 
-bucket* ht_lookup(htable* table, uint64_t key)
+bucket* ht_lookup(htable* table, uint64 key)
 {
   unsigned hash_index = key & hash_mask;
   unsigned offset     = 0;
@@ -83,16 +85,17 @@ DLLEXP int index(unsigned* utf32, unsigned len)
     Fnv64_t h = FNV1A_64_INIT;
     while (len && *charmap[*utf32])
     {
-      printf("Adding %s to current word\n", charmap[*utf32]);
+      //printf("Adding %s to current word\n", charmap[*utf32]);
       h = fnv_64a_str(charmap[*utf32], h);
       --len;
       ++utf32;
     }
 
     // Store info about current word
-    printf("hash of current word: %x %x\n", h.w32[0], h.w32[1]);
-    uint64_t key = *h.w32;
-    printf("%u", key);
+    //printf("hash of current word: %x %x\n", h.w32[0], h.w32[1]);
+    //printf("hash of current word: %u %u\n", h.w32[0], h.w32[1]);
+    uint64 key = ((uint64)h.w32[1] << 32) | h.w32[0];
+    //printf("key: %llx\n", key);
     bucket* b = ht_lookup(&ht, key);
     b->cnt     += 1;
     b->tot_idx += cur_idx;
@@ -107,14 +110,14 @@ DLLEXP int index(unsigned* utf32, unsigned len)
   }
 
   // debug print info about words
-  printf("Debug printout of hash table\n");
-  for (unsigned k = 0; k < bucket_count; ++k)
-  {
-    if (ht.buckets[k].id)
-    {
-      printf("id: %u, cnt: %u, tot_idx: %u\n", ht.buckets[k].id, ht.buckets[k].cnt, ht.buckets[k].tot_idx);
-    }
-  }
+  //printf("Debug printout of hash table\n");
+  //for (unsigned k = 0; k < bucket_count; ++k)
+  //{
+  //  if (ht.buckets[k].id)
+  //  {
+  //    printf("id: %llx, cnt: %u, tot_idx: %u\n", ht.buckets[k].id, ht.buckets[k].cnt, ht.buckets[k].tot_idx);
+  //  }
+  //}
 
   return 0;
 }
