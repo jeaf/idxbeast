@@ -26,7 +26,7 @@ lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
 #lib.index(e, len(e) / 4);
 
 with open(ur'C:\cae\pkg\mtfx_ver\main_2.2\core\dev\src\TFX\TfxAfx\GLee.cpp', 'r') as f:
-  s = f.read()
+    s = f.read()
 e = s.encode('utf-32')
 lib.index(e, len(e) / 4);
 

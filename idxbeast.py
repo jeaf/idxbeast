@@ -11,8 +11,8 @@ Copyright (c) 2013, Francois Jeannotte.
 import cui
 
 def main():
-  return cui.main()
+    return cui.main()
 
 if __name__ == '__main__':
-  main()
+    main()
 
