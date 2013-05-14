@@ -9,5 +9,8 @@ idxlib.o: idxlib.c fnv.h
 charmap.o: charmap.c
 	$(TCC) -c charmap.c
 
+charmap.c: charmap_gen.py
+	python.exe charmap_gen.py charmap.c
+
 hash_64a.o: hash_64a.c fnv.h
 	$(TCC) -c hash_64a.c
