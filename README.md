@@ -19,6 +19,13 @@ installed on your system.
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
   gives access to the entire SQLite API.
 
+* **Unidecode** ([https://pypi.python.org/pypi/Unidecode](https://pypi.python.org/pypi/Unidecode))
+
+  Unidecode converts unicode text to ASCII in a manner similar to what a human
+  with a U.S. keyboard would do. This is used by idxbeast for "flattening"
+  input texts, which allows for words with accents, for exemple, to map to the
+  same word.
+
 * **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
 
   A very useful module for Windows-specific Python scripts. idxbeast uses it
