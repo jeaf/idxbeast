@@ -1,3 +1,17 @@
+# coding=latin-1
+
+"""
+Variable Length Integer Encoding
+
+This module implements the base 128 variable length integer encoding defined
+here: https://developers.google.com/protocol-buffers/docs/encoding. This
+encoding allow for smaller integers to be encoded in fewer bytes, while
+still supporting arbitrary large integers (that will be encoded using more
+bytes).
+
+Copyright (c) 2013, François Jeannotte.
+"""
+
 def encode(int_list):
     """
     Encode an iterable of integers using an encoding similar to Google Protocol
@@ -15,9 +29,9 @@ def encode(int_list):
     >>> h(encode([300, 300, 300, 3, 0]))
     'ac02ac02ac020300'
 
-    The following examples give an idea of the size differences between pickling
-    and varint encoding (both with and without compression) for a short
-    sequence of integers.
+    The following examples give an idea of the size differences between
+    pickling and varint encoding (both with and without compression) for a
+    short sequence of integers.
 
     >>> import bz2
     >>> import cPickle
