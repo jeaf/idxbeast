@@ -19,9 +19,10 @@ installed on your system.
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
   gives access to the entire SQLite API.
 
-* pywin32 (http://sourceforge.net/projects/pywin32)
+* **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
 
-  todo
+  A very useful module for Windows-specific Python scripts. idxbeast uses it
+  for COM communication with the Microsoft Outlook application.
 
 * **PyYAML** ([http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML))
 
