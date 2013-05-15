@@ -101,6 +101,23 @@ server.py can be used to start the basic idxbeast web server. Once the server
 is properly running, a browser can be used to load the search page, and search
 for documents.
 
+Testing
+-------
+
+doctest is used for testing simple and low-level functions. `idxlib_test.py` is
+used to test the optimized C library.
+
+For now testing is somewhat disorganised, and lacking in many respects. The
+following are elements that should be improved in the future:
+
+* Provide a test.py main entry point for running all tests, or a subset of the
+  tests.
+* Include in the source distribution some relatively small test documents that
+  can be indexed and for which expected results can be defined.
+* Choose a well known package containing many text files (e.g., a specific
+  version of the Boost source distribution) that can be used to gather
+  performance data.
+
 Todo
 ----
 
@@ -158,6 +175,10 @@ flexibility in the way indexed documents are searched. For example,
 * Allow for time constraints (e.g., modified after April 15th) to be provided
   in the search string.
 * etc.
+
+### Testing
+
+Testing should be improved, see the Testing section for more information.
 
 Acknowledgements
 ----------------
