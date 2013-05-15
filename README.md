@@ -73,7 +73,106 @@ Usage
 
 ### Indexing
 
-todo
+Running the following command will index all locations defined in the
+configuration file:
+
+    idxbeast.py index
+
+### Searching
+
+#### From the command line
+
+Run the following command to search for a set of matching words:
+
+    idxbeast.py search "word1 word2 word3"
+
+All search words are implicitely joined with an AND operator, meaning that a
+document must contain all words in order to be recognized as matching.
+
+#### From the web application
+
+server.py can be used to start the basic idxbeast web server. Once the server
+is properly running, a browser can be used to load the search page, and search
+for documents.
+
+Testing
+-------
+
+doctest is used for testing simple and low-level functions. `idxlib_test.py` is
+used to test the optimized C library.
+
+For now testing is somewhat disorganised, and lacking in many respects. The
+following are elements that should be improved in the future:
+
+* Provide a test.py main entry point for running all tests, or a subset of the
+  tests.
+* Include in the source distribution some relatively small test documents that
+  can be indexed and for which expected results can be defined.
+* Choose a well known package containing many text files (e.g., a specific
+  version of the Boost source distribution) that can be used to gather
+  performance data.
+
+Todo
+----
+
+Many features are incomplete, or not even started. This section lists such
+features that are either actively being worked on, or may be worked on in the
+future.
+
+### Web application
+
+idxbeast provides a rudimentary web application (server.py) built on the Bottle
+web framework.  Some effort could be invested in making this web application
+more polished and feature rich.
+
+### Optimized C library
+
+Work on an experimental optimized C library called idxlib has been started. As
+is currently designed, idxbeast.py would call idxlib for each file to index.
+Before calling idxlib, idxbeast would read the whole file as unicode, and
+convert it to UTF-32. For each file, idxlib expects an array of unicode code
+points: 32 bit integers between 0 and 0xFFFF inclusive (assuming a Python
+narrow build).  idxlib will index each file, and store the accumulated results.
+When some criteria is met (e.g., number of files indexed larger than x), idxlib
+will flush the indexed documents to the SQLite database.
+
+### Web pages indexing
+
+Web pages indexing is not supported yet. This could be most useful for intranet
+or such networks that aren't indexed by Google.
+
+### Microsoft Outlook contents indexing
+
+idxbeast provides support for indexing the contents of emails from the
+Microsoft Outlook application. COM is used to communicate with Outlook, and
+retrieve the text of emails.  However, there seems to be a resource leak in the
+way idxbeast queries the Outlook API, and after a few hundreds emails, COM
+fails to read any more emails with a "out of resource" exception. The Outlook
+application is then unresponsive, and must be restarted.
+
+Since I don't use Outlook anymore, debugging of this problem has been put on
+hold.
+
+### Extended search syntax
+
+As of this writing, it is only possible to search for one or more words, all
+joined with the implicit AND operator. This means that for a document to match, all
+words specified in the search string must be present in the document.
+
+It would be interesting to provide an extended search syntax, allowing for more
+flexibility in the way indexed documents are searched. For example,
+
+* Provide a OR operator that can be mixed freely with the AND operator. This
+  would also require the introduction of parenthesis in the search string to
+  properly define precedence.
+* Provide a "minus" operator that would allow exluding words.
+* Allow for time constraints (e.g., modified after April 15th) to be provided
+  in the search string.
+* etc.
+
+### Testing
+
+Testing should be improved, see the Testing section for more information.
 
 Acknowledgements
 ----------------
