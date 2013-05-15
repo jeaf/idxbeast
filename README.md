@@ -5,11 +5,6 @@ idxbeast is a simple content indexer written (mostly) in Python. It parses
 local text files and index their contents into a SQLite database. The database
 can later be searched either from the command line or from a web server.
 
-Motivation
-----------
-
-todo
-
 Dependencies
 ------------
 
@@ -18,12 +13,11 @@ installed on your system.
 
 ### Required
 
-* APSW (http://code.google.com/p/apsw/)
+* **Another Python SQLite Wrapper** ([http://code.google.com/p/apsw/](http://code.google.com/p/apsw/))
 
-  APSW means "Another Python SQLite Wrapper". Even though Python natively
-  supports most SQLite features, some of the newer APIs are not supported, such
-  as BLOB I/O (which is used by idxbeast).  APSW gives access to the entire
-  SQLite API.
+  Even though Python natively supports most SQLite features, some of the newer
+  APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
+  gives access to the entire SQLite API.
 
 * pywin32 (http://sourceforge.net/projects/pywin32)
 
@@ -75,6 +69,10 @@ todo
 
 Acknowledgements
 ----------------
+
+* idxbeast uses the SQLite C amalgamation files for the idxlib optimized C
+  library. The two required files (sqlite3.c and sqlite3.h) are included in
+  the idxbeast source distribution.
 
 * idxbeast uses the Bottle Web Framework (http://bottlepy.org) to implement a
   basic web server. The bottle.py file is included in the idxbeast source
