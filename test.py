@@ -1,6 +1,7 @@
 import datetime
-import idxbeast
 import time
+
+import idxbeast
 
 def assert_eq(expected, actual):
     assert expected == actual, 'expected: {}, actual: {}'.format(expected, actual)

@@ -1,3 +1,13 @@
+# coding=latin-1
+
+"""
+Console User Interface
+
+This module implements a console user interface for idxbeast.
+
+Copyright (c) 2013, François Jeannotte.
+"""
+
 import ctypes
 import datetime
 import msvcrt

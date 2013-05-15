@@ -24,7 +24,7 @@ character):
   - ]: <empty string>
   - ,: <empty string>
 
-Copyright (c) 2013, Francois Jeannotte.
+Copyright (c) 2013, François Jeannotte.
 """
 
 import itertools

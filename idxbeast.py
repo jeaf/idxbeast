@@ -5,7 +5,7 @@ idxbeast.py - simple content indexer.
 
 This script implements a simple document indexing application.
 
-Copyright (c) 2013, Francois Jeannotte.
+Copyright (c) 2013, François Jeannotte.
 """
 
 import cui

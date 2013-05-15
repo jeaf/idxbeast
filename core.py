@@ -1,6 +1,13 @@
 # coding=latin-1
 
-import apsw
+"""
+idxbeast core services.
+
+This modules provide the core indexing services for idxbeast.
+
+Copyright (c) 2013, François Jeannotte.
+"""
+
 import collections
 import ctypes
 import datetime
@@ -8,7 +15,7 @@ import hashlib
 import itertools
 import logging
 import logging.handlers
-import multiprocessing as mt
+import multiprocessing as mp
 import os.path
 import Queue
 import string
@@ -16,25 +23,39 @@ import struct
 import time
 import traceback
 
+import apsw
 import unidecode
 import win32com.client
 import yaml
 
+import charmap_gen
 import varint
 
 def create_tables(conn):
+    """
+    Create the database tables used for storing the index: match and doc.
+    """
 
     sql = conn.cursor().execute
 
     # match
     #
-    # id          : the id is the truncated MD5 of the flattened (été -> ete) word.
+    # id          : the truncated MD5 of the flattened (été -> ete) word.
+    # size        : the size in bytes of the encoded data stored in the BLOB.
+    #               It is possible for the encoded data to be smaller than the
+    #               real BLOB size. For example, if the BLOB needs to be
+    #               resized, it could be resized to a larger value than needed
+    #               to try to avoid resizes in future updates.
     # matches_blob: A list of encoded integer groups, one group for each match.
     #               Each group contains the following integers:
     #                - document id
-    #                - word count
-    #                - average index
-    sql('CREATE TABLE IF NOT EXISTS match(id INTEGER PRIMARY KEY, size INTEGER NOT NULL, matches_blob BLOB NOT NULL)')
+    #                - word count (the number of times this word appears in the
+    #                  document)
+    #                - the average index of this word in the document. The
+    #                  index is zero based (i.e., the first word has index 0).
+    sql('''CREATE TABLE IF NOT EXISTS match(id           INTEGER PRIMARY KEY,
+                                            size         INTEGER NOT NULL,
+                                            matches_blob BLOB    NOT NULL)''')
 
     # doc
     #
@@ -43,9 +64,9 @@ def create_tables(conn):
     #   - file     : the path
     #   - web page : the URL
     #   - email    : the EntryId
-    # The (optional, immutable) title is used to display to the user. Since it is
-    # immutable, it will not be updated even if it changes in a web page. For
-    # example:
+    # The (optional, immutable) title is used to display to the user. Since it
+    # is immutable, it will not be updated even if it changes in a web page.
+    # For example:
     #   - file     : <not used, will display locator>
     #   - web page : the title of the page
     #   - email    : the subject
@@ -54,18 +75,18 @@ def create_tables(conn):
     # documents are deleted from the DB, but their id may still be inside the
     # index for a word.
     sql('''CREATE TABLE IF NOT EXISTS doc(
-                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                  type_           INTEGER NOT NULL,
-                  locator         TEXT UNIQUE NOT NULL,
-                  mtime           INTEGER,
-                  title           TEXT,
-                  extension       TEXT,
-                  title_only      INTEGER DEFAULT 0,
-                  size            INTEGER,
-                  word_cnt        INTEGER NOT NULL,
-                  unique_word_cnt INTEGER NOT NULL,
-                  from_           TEXT,
-                  to_             TEXT)''')
+           id              INTEGER PRIMARY KEY AUTOINCREMENT,
+           type_           INTEGER NOT NULL,
+           locator         TEXT    UNIQUE NOT NULL,
+           mtime           INTEGER,
+           title           TEXT,
+           extension       TEXT,
+           title_only      INTEGER DEFAULT 0,
+           size            INTEGER,
+           word_cnt        INTEGER NOT NULL,
+           unique_word_cnt INTEGER NOT NULL,
+           from_           TEXT,
+           to_             TEXT)''')
 
 # Constants
 doctype_file  = 1
@@ -120,17 +141,8 @@ class cfg(object):
     indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
     indexed_urls          = cfg_obj.get('indexed_urls', [])
 
-# Create the translation table used with the str.translate method. This will
-# replace all uppercase chars with their lowercase equivalent, and numbers
-# and "_" are passed-through as is. All other chars are replaced with a
-# space.
-translate_table = list(256*' ')
-for c in itertools.chain(string.lowercase, string.digits):
-    translate_table[ord(c)] = c
-for c_upper, c_lower in zip(string.uppercase, string.lowercase):
-    translate_table[ord(c_upper)] = c_lower
-translate_table[ord('_')] = '_'
-translate_table = ''.join(translate_table)
+# Get the translation table from the charmap generator script
+translate_table = charmap_gen.create_translate_table()
 
 # This Struct instance will be used to extract a 60-bit int from a MD5 hash.
 word_hash_struct = struct.Struct('<xxxxxxxxQ')
@@ -253,12 +265,12 @@ def iteremails(folder_filter):
                     try:
                         row = table.GetNextRow()
                         oe = OutlookEmail(row['EntryId'],
-                                                            mapi,
-                                                            row['SenderName'],
-                                                            ' '.join((row['To'], row['CC'], row['BCC'])),
-                                                            row['Size'],
-                                                            row['Subject'],
-                                                            row['ReceivedTime'])
+                                          mapi,
+                                          row['SenderName'],
+                                          ' '.join((row['To'], row['CC'], row['BCC'])),
+                                          row['Size'],
+                                          row['Subject'],
+                                          row['ReceivedTime'])
                         yield oe, None
                     except Exception, ex:
                         yield None, ex
@@ -289,43 +301,43 @@ def search(words, limit, offset):
 
     # Figure out the total number of results
     for total, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
-                                                              INNER JOIN search ON main.doc.id = search.doc_id
-                                                              GROUP BY main.doc.id HAVING COUNT(1) = ?)''', (len(query_word_hashes),)):
+                                                       INNER JOIN search ON main.doc.id = search.doc_id
+                                                       GROUP BY main.doc.id HAVING COUNT(1) = ?)''', (len(query_word_hashes),)):
         break
     else:
         total = 0
 
     # Return search results
     return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title, doc.title_only FROM doc
-                                                              INNER JOIN search ON main.doc.id = search.doc_id
-                                                              GROUP BY main.doc.id HAVING COUNT(1) = ?
-                                                              ORDER BY SUM(search.relev) DESC
-                                                              LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
+                                 INNER JOIN search ON main.doc.id = search.doc_id
+                                 GROUP BY main.doc.id HAVING COUNT(1) = ?
+                                 ORDER BY SUM(search.relev) DESC
+                                 LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
 
 class IndexerSharedData(ctypes.Structure):
     _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
-                            ('doc_done_count', ctypes.c_int     ),
-                            ('current_doc'   , ctypes.c_char*380)]
+                ('doc_done_count', ctypes.c_int     ),
+                ('current_doc'   , ctypes.c_char*380)]
 
 class DispatcherSharedData(ctypes.Structure):
     _fields_ = [('status'          , ctypes.c_char*40 ),
-                            ('listed_count'    , ctypes.c_int     ),
-                            ('uptodate_count'  , ctypes.c_int     ),
-                            ('outdated_count'  , ctypes.c_int     ),
-                            ('new_count'       , ctypes.c_int     ),
-                            ('error_count'     , ctypes.c_int     ),
-                            ('current_doc'     , ctypes.c_char*380),
-                            ('db_status'       , ctypes.c_char*40 )]
+                ('listed_count'    , ctypes.c_int     ),
+                ('uptodate_count'  , ctypes.c_int     ),
+                ('outdated_count'  , ctypes.c_int     ),
+                ('new_count'       , ctypes.c_int     ),
+                ('error_count'     , ctypes.c_int     ),
+                ('current_doc'     , ctypes.c_char*380),
+                ('db_status'       , ctypes.c_char*40 )]
 
 
 def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
     # Create the document queue and worker processes
-    index_q = mt.Queue()
-    db_q    = mt.Queue()
-    worker_procs = [mt.Process(target=indexer_proc, args=(i, indexer_shared_data_array, index_q, db_q)) for i in range(len(indexer_shared_data_array))]
+    index_q = mp.Queue()
+    db_q    = mp.Queue()
+    worker_procs = [mp.Process(target=indexer_proc, args=(i, indexer_shared_data_array, index_q, db_q)) for i in range(len(indexer_shared_data_array))]
     for p in worker_procs: p.start()
-    dbwriter_p = mt.Process(target=dbwriter_proc, args=(db_q, dispatcher_shared_data))
+    dbwriter_p = mp.Process(target=dbwriter_proc, args=(db_q, dispatcher_shared_data))
     dbwriter_p.start()
 
     # Read the entire document DB in memory
@@ -495,14 +507,14 @@ with apsw.Connection(db_path) as conn:
 def start_indexing():
 
     # Initialize shared mem structures
-    dstat = mt.Value(DispatcherSharedData)
+    dstat = mp.Value(DispatcherSharedData)
     dstat.status = 'Starting'
-    istat_array = mt.Array(IndexerSharedData, cfg.indexer_proc_count)
+    istat_array = mp.Array(IndexerSharedData, cfg.indexer_proc_count)
     for dat in istat_array:
         dat.status = ''
 
     # Launch dispatcher process
-    disp = mt.Process(target=dispatcher_proc, args=(dstat, istat_array))
+    disp = mp.Process(target=dispatcher_proc, args=(dstat, istat_array))
     disp.start()
     return dstat, istat_array
 
