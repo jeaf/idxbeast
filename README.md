@@ -13,29 +13,25 @@ installed on your system.
 
 ### Required
 
-* **Another Python SQLite Wrapper**  
-  [http://code.google.com/p/apsw/](http://code.google.com/p/apsw/)
+* **Another Python SQLite Wrapper** ([http://code.google.com/p/apsw/](http://code.google.com/p/apsw/))
 
   Even though Python natively supports most SQLite features, some of the newer
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
   gives access to the entire SQLite API.
 
-* **Unidecode**  
-  [https://pypi.python.org/pypi/Unidecode](https://pypi.python.org/pypi/Unidecode)
+* **Unidecode** ([https://pypi.python.org/pypi/Unidecode](https://pypi.python.org/pypi/Unidecode))
 
   Unidecode converts unicode text to ASCII in a manner similar to what a human
   with a U.S. keyboard would do. This is used by idxbeast for "flattening"
   input texts, which allows for words such as "mangé" and "mange" to map to the
   same word.
 
-* **pywin32**  
-  [http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32)
+* **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
 
   A very useful module for Windows-specific Python scripts. idxbeast uses it
   for COM communication with the Microsoft Outlook application.
 
-* **PyYAML**  
-  [http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML)
+* **PyYAML** ([http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML))
 
   The idxbeast configuration file is written in the YAML syntax.
 
@@ -45,14 +41,12 @@ The following dependencies are required to build the idxlib.dll optimization
 C library. That library is optional, and as of this writing it is not completed
 nor functional.
 
-* **TCC**  
-  [http://bellard.org/tcc/](http://bellard.org/tcc/)
+* **TCC** ([http://bellard.org/tcc/](http://bellard.org/tcc/))
 
   TCC means "Tiny C Compiler". This is the only tested compiler for the
   optional idxlib.dll C library.
 
-* **make for Windows**  
-  [http://unxutils.sourceforge.net/](http://unxutils.sourceforge.net/)
+* **make for Windows** ([http://unxutils.sourceforge.net/](http://unxutils.sourceforge.net/))
 
   A Makefile is provided for building the idxlib.dll library. The make utility
   can be found in the GNU utilities for Win32 package.
