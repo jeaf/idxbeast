@@ -19,21 +19,13 @@ installed on your system.
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
   gives access to the entire SQLite API.
 
-* **Unidecode** ([https://pypi.python.org/pypi/Unidecode](https://pypi.python.org/pypi/Unidecode))
+* pywin32 (http://sourceforge.net/projects/pywin32)
 
-  Unidecode converts unicode text to ASCII in a manner similar to what a human
-  with a U.S. keyboard would do. This is used by idxbeast for "flattening"
-  input texts, which allows for words such as "mangé" and "mange" to map to the
-  same word.
+  todo
 
-* **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
+* PyYAML (http://pyyaml.org/wiki/PyYAML)
 
-  A very useful module for Windows-specific Python scripts. idxbeast uses it
-  for COM communication with the Microsoft Outlook application.
-
-* **PyYAML** ([http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML))
-
-  The idxbeast configuration file is written in the YAML syntax.
+  todo
 
 ### Optional
 
@@ -46,7 +38,7 @@ nor functional.
   TCC means "Tiny C Compiler". This is the only tested compiler for the
   optional idxlib.dll C library.
 
-* **make for Windows** ([http://unxutils.sourceforge.net/](http://unxutils.sourceforge.net/))
+* make for Windows (http://unxutils.sourceforge.net/)
 
   A Makefile is provided for building the idxlib.dll library. The make utility
   can be found in the GNU utilities for Win32 package.
