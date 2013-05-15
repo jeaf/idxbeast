@@ -23,9 +23,9 @@ installed on your system.
 
   todo
 
-* PyYAML (http://pyyaml.org/wiki/PyYAML)
+* **PyYAML** ([http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML))
 
-  todo
+  The idxbeast configuration file is written in the YAML syntax.
 
 ### Optional
 
@@ -38,7 +38,7 @@ nor functional.
   TCC means "Tiny C Compiler". This is the only tested compiler for the
   optional idxlib.dll C library.
 
-* make for Windows (http://unxutils.sourceforge.net/)
+* **make for Windows** ([http://unxutils.sourceforge.net/](http://unxutils.sourceforge.net/))
 
   A Makefile is provided for building the idxlib.dll library. The make utility
   can be found in the GNU utilities for Win32 package.
