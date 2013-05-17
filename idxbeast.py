@@ -15,6 +15,7 @@ import multiprocessing
 import os.path as op
 import sys
 
+import core
 import cui
 
 def validate_db(db):
@@ -120,16 +121,13 @@ def main():
         print 'The index command should be run at least once before executing a search.'
         sys.exit(0)
 
-    # Initialize logging
-    log = logging.getLogger('idxbeast')
-    log.setLevel(logging.DEBUG)
-    log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-    log_handler   = logging.handlers.RotatingFileHandler(args.logfile, maxBytes=10*1024**2, backupCount=5)
-    log_handler.setFormatter(log_formatter)
-    log.addHandler(log_handler)
+    # Setup file logging in the core module
+    log_handler = logging.handlers.RotatingFileHandler(args.logfile, maxBytes=10*1024**2, backupCount=5)
+    log_handler.setFormatter(core.log_formatter)
+    core.log.addHandler(log_handler)
 
     # Call console user interface
-    return cui.main(cmd, args, log)
+    return cui.main(cmd, args)
 
 if __name__ == '__main__':
     main()

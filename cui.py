@@ -311,7 +311,7 @@ class Item(object):
         line = line + self.key + ') ' + self.text
         return line
 
-def main(cmd, args, log):
+def main(cmd, args):
 
     # Check if search
     if cmd == 'search':

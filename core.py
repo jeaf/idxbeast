@@ -13,6 +13,7 @@ import ctypes
 import datetime
 import hashlib
 import itertools
+import logging
 import multiprocessing as mp
 import os.path
 import Queue
@@ -27,6 +28,14 @@ import win32com.client
 
 import charmap_gen
 import varint
+
+# Initialize logger, initially without handler. Handlers are added by users of
+# this module. For instance, the idxbeast.py entry point script will setup
+# file logging, if enabled. A gui module (does not exist yet) could also setup
+# a handler that logs into a window, for example.
+log = logging.getLogger('core')
+log.setLevel(logging.DEBUG)
+log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 def create_tables(conn):
     """
@@ -123,8 +132,7 @@ class Document(object):
             encoded_id = varint.encode([self.id])
             self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
         except Exception, ex:
-            #log.warning('Exception while processing {}, exception: {}'.format(self, ex))
-            print 'Exception while processing {}, exception: {}'.format(self, ex)
+            log.warning('Exception while processing {}, exception: {}'.format(self, ex))
             self.words = dict()
 
 class File(Document):
@@ -217,8 +225,7 @@ def iteremails(folder_filter):
                     except Exception, ex:
                         yield None, ex
             except Exception, ex:
-                #log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
-                print 'Exception while processing Outlook folder, exception: {}'.format(ex)
+                log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
 
 def search(db_path, words, limit, offset):
     
@@ -304,8 +311,7 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
             dispatcher_shared_data.listed_count += 1
 
             if error != None:
-                #log.warning('Cannot process file {}, error: {}'.format(f, error))
-                print 'Cannot process file {}, error: {}'.format(f, error)
+                log.warning('Cannot process file {}, error: {}'.format(f, error))
                 dispatcher_shared_data.error_count += 1
                 continue
 
@@ -325,7 +331,6 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
 
         except Exception, ex:
             log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
-            print 'Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc())
 
     # Wait on worker processes
     dispatcher_shared_data.status = 'Waiting on indexer processes'
