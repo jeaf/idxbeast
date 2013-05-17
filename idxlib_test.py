@@ -3,32 +3,37 @@
 from ctypes import *
 import os
 
-os.system('make')
+def main():
 
-lib = cdll.idxlib
-lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
+    os.system('make')
 
-#low  = c_uint()
-#high = c_uint()
-#res  = lib.fnv("abc", byref(low), byref(high))
-#print '{0:x} {1:x}'.format(low.value, high.value)
-#res  = lib.fnv("chongo was here", byref(low), byref(high))
-#print '{0:x} {1:x}'.format(low.value, high.value)
+    lib = cdll.idxlib
+    lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
 
-#s = u"testéà"
-#e = s.encode('utf-32')
-#lib.index(e, len(e) / 4);
-#s = u""
-#e = s.encode('utf-32')
-#lib.index(e, len(e) / 4);
-#s = u"abc ceci testé abc"
-#e = s.encode('utf-32')
-#lib.index(e, len(e) / 4);
+    #low  = c_uint()
+    #high = c_uint()
+    #res  = lib.fnv("abc", byref(low), byref(high))
+    #print '{0:x} {1:x}'.format(low.value, high.value)
+    #res  = lib.fnv("chongo was here", byref(low), byref(high))
+    #print '{0:x} {1:x}'.format(low.value, high.value)
 
-with open(ur'C:\cae\pkg\mtfx_ver\main_2.2\core\dev\src\TFX\TfxAfx\GLee.cpp', 'r') as f:
-    s = f.read()
-e = s.encode('utf-32')
-lib.index(e, len(e) / 4);
+    #s = u"testéà"
+    #e = s.encode('utf-32')
+    #lib.index(e, len(e) / 4);
+    #s = u""
+    #e = s.encode('utf-32')
+    #lib.index(e, len(e) / 4);
+    #s = u"abc ceci testé abc"
+    #e = s.encode('utf-32')
+    #lib.index(e, len(e) / 4);
 
-#lib.test()
+    with open('testdata_donjuan.txt', 'r') as f:
+        s = f.read()
+    e = s.encode('utf-32')
+    lib.index(e, len(e) / 4);
+
+    #lib.test()
+
+if __name__ == '__main__':
+    main()
 
