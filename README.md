@@ -31,10 +31,6 @@ installed on your system.
   A very useful module for Windows-specific Python scripts. idxbeast uses it
   for COM communication with the Microsoft Outlook application.
 
-* **PyYAML** ([http://pyyaml.org/wiki/PyYAML](http://pyyaml.org/wiki/PyYAML))
-
-  The idxbeast configuration file is written in the YAML syntax.
-
 ### Optional
 
 The following dependencies are required to build the idxlib.dll optimization
@@ -61,12 +57,6 @@ capabilities. As of this writing, the library is incomplete and non-functional.
 To compile idxlib.dll, simply run the make utility from inside a command prompt
 located into the idxbeast directory. idxbeast will automatically use the
 optimized library for indexing once it has been built.
-
-Configuration
--------------
-
-A YAML file is used to define idxbeast configuration parameters. That file is
-located under ~\.idxbeast\settings.yaml.
 
 Usage
 -----

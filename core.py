@@ -13,8 +13,6 @@ import ctypes
 import datetime
 import hashlib
 import itertools
-import logging
-import logging.handlers
 import multiprocessing as mp
 import os.path
 import Queue
@@ -26,7 +24,6 @@ import traceback
 import apsw
 import unidecode
 import win32com.client
-import yaml
 
 import charmap_gen
 import varint
@@ -81,7 +78,6 @@ def create_tables(conn):
            mtime           INTEGER,
            title           TEXT,
            extension       TEXT,
-           title_only      INTEGER DEFAULT 0,
            size            INTEGER,
            word_cnt        INTEGER NOT NULL,
            unique_word_cnt INTEGER NOT NULL,
@@ -91,55 +87,6 @@ def create_tables(conn):
 # Constants
 doctype_file  = 1
 doctype_email = 2
-
-# Initialize data dir, creating it if necessary
-data_dir = os.path.expanduser(ur'~\.idxbeast')
-assert not os.path.isfile(data_dir)
-if not os.path.isdir(data_dir):
-    os.mkdir(data_dir)
-db_path = os.path.join(data_dir, 'index.sqlite3')
-
-# Initialize config file, creating it if necessary
-cfg_file = os.path.join(data_dir, u'settings.yaml')
-assert not os.path.isdir(cfg_file)
-if not os.path.isfile(cfg_file):
-    with open(cfg_file, 'w') as f:
-        default_config_str = '''
-        indexer_proc_count  : 4
-        indexed_file_types  : 'bat c cpp cs cxx h hpp htm html ini java js log md py rest rst txt xml yaml yml'
-        word_hash_cache_size: 100000
-        doc_bundle_size     : 2000
-        indexed_dirs:
-            - C:\dir1
-            - C:\dir2
-        indexed_email_folders:
-            - Inbox
-        indexed_urls:
-            - https://github.com/jeaf
-        '''
-        f.write(default_config_str)
-
-# Initialize logging
-log = logging.getLogger('idxbeast')
-log.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-log_handler   = logging.handlers.RotatingFileHandler(os.path.join(data_dir, 'log.txt'), maxBytes=10*1024**2, backupCount=5)
-log_handler.setFormatter(log_formatter)
-log.addHandler(log_handler)
-
-# Load configuration
-cfg_obj = dict()
-if os.path.isfile(cfg_file):
-    with open(cfg_file, 'r') as f:
-        cfg_obj  = yaml.load(f)
-class cfg(object):
-    indexer_proc_count    = cfg_obj.get('indexer_proc_count', 4)
-    indexed_file_types    = cfg_obj.get('indexed_file_types', 'bat c cpp cs cxx h hpp htm html ini java log md py rst txt xml')
-    word_hash_cache_size  = cfg_obj.get('word_hash_cache_size', 10000)
-    doc_bundle_size       = cfg_obj.get('doc_bundle_size', 2000)
-    indexed_dirs          = cfg_obj.get('indexed_dirs', [])
-    indexed_email_folders = cfg_obj.get('indexed_email_folders', [])
-    indexed_urls          = cfg_obj.get('indexed_urls', [])
 
 # Get the translation table from the charmap generator script
 translate_table = charmap_gen.create_translate_table()
@@ -154,18 +101,13 @@ def get_word_hash(word):
     >>> get_word_hash('abc')
     180110074134370006L
     """
-    if len(word_hash_cache) > cfg.word_hash_cache_size:
+    if len(word_hash_cache) > 10000:
         word_hash_cache.clear()
     word_hash = word_hash_cache.get(word, None)
     if word_hash == None:
         word_hash = word_hash_struct.unpack(hashlib.md5(word).digest())[0] & 0x00000000000000000FFFFFFFFFFFFFFF
         word_hash_cache[word] = word_hash
     return word_hash
-
-supported_extensions = set(''.join(['.', ext]) for ext in cfg.indexed_file_types.split())
-def is_file_handled(path):
-    root, ext = os.path.splitext(path)
-    return ext in supported_extensions
 
 class Document(object):
     def index(self):
@@ -181,7 +123,8 @@ class Document(object):
             encoded_id = varint.encode([self.id])
             self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
         except Exception, ex:
-            log.warning('Exception while processing {}, exception: {}'.format(self, ex))
+            #log.warning('Exception while processing {}, exception: {}'.format(self, ex))
+            print 'Exception while processing {}, exception: {}'.format(self, ex)
             self.words = dict()
 
 class File(Document):
@@ -192,27 +135,26 @@ class File(Document):
         self.title      = None
         root, ext       = os.path.splitext(self.locator)
         self.extension  = ext[1:] if ext.startswith('.') else ext
-        self.title_only = not is_file_handled(self.locator)
         self.size       = os.path.getsize(self.locator)
         self.from_      = None
         self.to_        = None
     def __repr__(self):
         return '<File ' + ' ' + self.locator + '>'
     def get_text(self):
-        if not self.title_only:
-            with open(self.locator, 'r') as f:
-                return ''.join((self.locator, ' ', f.read()))
-        else:
-            return self.locator
+        with open(self.locator, 'r') as f:
+            return ''.join((self.locator, ' ', f.read()))
 
-def iterfiles(rootdir):
+def iterfiles(rootdir, exts):
+    supported_extensions = set(''.join(['.', ext]) for ext in exts.split())
     for dirpath, dirnames, filenames in os.walk(rootdir):
         for name in filenames:
-            name = os.path.join(dirpath, name)
-            try:
-                yield File(name), None
-            except Exception, ex:
-                yield name, ex
+            path = os.path.join(dirpath, name)
+            root, ext = os.path.splitext(path)
+            if ext in supported_extensions:
+                try:
+                    yield File(path), None
+                except Exception, ex:
+                    yield path, ex
 
 class OutlookEmail(Document):
     """
@@ -275,9 +217,10 @@ def iteremails(folder_filter):
                     except Exception, ex:
                         yield None, ex
             except Exception, ex:
-                log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
+                #log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
+                print 'Exception while processing Outlook folder, exception: {}'.format(ex)
 
-def search(words, limit, offset):
+def search(db_path, words, limit, offset):
     
     # Connect to the DB and create the necessary temporary memory tables
     conn = apsw.Connection(db_path)
@@ -308,7 +251,7 @@ def search(words, limit, offset):
         total = 0
 
     # Return search results
-    return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title, doc.title_only FROM doc
+    return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
                                  INNER JOIN search ON main.doc.id = search.doc_id
                                  GROUP BY main.doc.id HAVING COUNT(1) = ?
                                  ORDER BY SUM(search.relev) DESC
@@ -330,14 +273,14 @@ class DispatcherSharedData(ctypes.Structure):
                 ('db_status'       , ctypes.c_char*40 )]
 
 
-def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
+def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, srcs, exts):
 
     # Create the document queue and worker processes
     index_q = mp.Queue()
     db_q    = mp.Queue()
     worker_procs = [mp.Process(target=indexer_proc, args=(i, indexer_shared_data_array, index_q, db_q)) for i in range(len(indexer_shared_data_array))]
     for p in worker_procs: p.start()
-    dbwriter_p = mp.Process(target=dbwriter_proc, args=(db_q, dispatcher_shared_data))
+    dbwriter_p = mp.Process(target=dbwriter_proc, args=(db_path, db_q, dispatcher_shared_data))
     dbwriter_p.start()
 
     # Read the entire document DB in memory
@@ -350,17 +293,19 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
     next_doc_id += 1
 
     # List all documents
-    chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir)) for rootdir   in cfg.indexed_dirs         )
-    chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in cfg.indexed_email_folders)
-    chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in cfg.indexed_urls         )
-    for doc, error in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
+    chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir), exts) for rootdir in srcs)
+    #chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in srcs_email)
+    #chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in srcs_webpage)
+    #for doc, error in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
+    for doc, error in chained_iterfiles:
 
         dispatcher_shared_data.status = 'Listing documents'
         try:
             dispatcher_shared_data.listed_count += 1
 
             if error != None:
-                log.warning('Cannot process file {}, error: {}'.format(f, error))
+                #log.warning('Cannot process file {}, error: {}'.format(f, error))
+                print 'Cannot process file {}, error: {}'.format(f, error)
                 dispatcher_shared_data.error_count += 1
                 continue
 
@@ -380,6 +325,7 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
 
         except Exception, ex:
             log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
+            print 'Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc())
 
     # Wait on worker processes
     dispatcher_shared_data.status = 'Waiting on indexer processes'
@@ -390,9 +336,9 @@ def dispatcher_proc(dispatcher_shared_data, indexer_shared_data_array):
     dbwriter_p.join()
     dispatcher_shared_data.status = 'Idle'
 
-def dbwriter_proc(db_q, dispatcher_shared_data):
+def dbwriter_proc(db_path, db_q, dispatcher_shared_data):
 
-    # Connec to the DB
+    # Connect to the DB
     conn = apsw.Connection(db_path)
 
     # Loop on the Queue until the None sentry is received
@@ -475,9 +421,9 @@ def dbwriter_proc(db_q, dispatcher_shared_data):
                 conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
 
             # Insert new/updated documents
-            tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.title_only, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
+            tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
             dispatcher_shared_data.db_status = 'insert docs ({})'.format(len(tuples))
-            conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','title_only','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
+            conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuples)
 
             # Right before going out of the current scope, set the status to commit.
             # When the scope ends, the COMMIT will take place because of the context
@@ -500,21 +446,21 @@ def indexer_proc(i, shared_data_array, index_q, db_q):
         shared_data_array[i].doc_done_count += 1
         db_q.put(doc)
 
-# Create tables
-with apsw.Connection(db_path) as conn:
-    create_tables(conn)
+def start_indexing(db_path, srcs, nbprocs, exts):
 
-def start_indexing():
+    # Create tables
+    with apsw.Connection(db_path) as conn:
+        create_tables(conn)
 
     # Initialize shared mem structures
     dstat = mp.Value(DispatcherSharedData)
     dstat.status = 'Starting'
-    istat_array = mp.Array(IndexerSharedData, cfg.indexer_proc_count)
+    istat_array = mp.Array(IndexerSharedData, nbprocs)
     for dat in istat_array:
         dat.status = ''
 
     # Launch dispatcher process
-    disp = mp.Process(target=dispatcher_proc, args=(dstat, istat_array))
+    disp = mp.Process(target=dispatcher_proc, args=(db_path, dstat, istat_array, srcs, exts))
     disp.start()
     return dstat, istat_array
 

@@ -23,20 +23,16 @@ import win32console
 import core
 
 class MenuDoc(object):
-    def __init__(self, locator, relev, title, title_only):
+    def __init__(self, locator, relev, title):
         self.locator = locator
         self.relev = relev
         self.title = title
         if self.title == None:
             self.title = self.locator
-        self.title_only = title_only
         self.disp_str = u'[{}] {}'.format(self.relev, self.title)
     def activate(self):
         if os.path.isfile(self.locator):
-            if self.title_only:
-                os.startfile(self.locator)
-            else:
-                subprocess.Popen(['notepad.exe', self.locator])
+            subprocess.Popen(['notepad.exe', self.locator])
         else:
             outlook = win32com.client.Dispatch('Outlook.Application')
             mapi = outlook.GetNamespace('MAPI')
@@ -315,19 +311,19 @@ class Item(object):
         line = line + self.key + ') ' + self.text
         return line
 
-def main():
+def main(cmd, args, log):
 
     # Check if search
-    if len(sys.argv) == 3 and sys.argv[1] == 'search':
+    if cmd == 'search':
         print 'Executing search...'
         start_time = time.clock()
-        total, cur = core.search(sys.argv[2], 20, 0)
+        total, cur = core.search(args.db, ' '.join(args.word), 20, 0)
         elapsed_time = time.clock() - start_time
         print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
         syncMenu = Menu()
-        for locator, relev, title, title_only in cur:
+        for locator, relev, title in cur:
             disp_str = '[{}] {}'.format(relev, title if title else locator)
-            syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title, title_only)))
+            syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
         if syncMenu.items:
             res = syncMenu.show(sort=True)
             if not res:
@@ -344,12 +340,15 @@ def main():
         return
 
     # Run indexing
-    if len(sys.argv) == 2 and sys.argv[1] == 'index':
+    if cmd == 'index':
 
         # Launch indexing
-        print 'Indexing...'
+        print 'Indexing sources:'
+        for i, src in enumerate(args.src):
+            print '{}: {}'.format(i, src)
+        print 'DB path: {}'.format(args.db)
         start_time = time.clock()
-        dstat, istat_array = core.start_indexing()
+        dstat, istat_array = core.start_indexing(args.db, args.src, args.nbprocs, args.exts)
 
         # Wait for indexing to complete, update status
         curpos = getcurpos()
@@ -390,7 +389,4 @@ def main():
 
     # Unknown command, print usage
     print 'Usage: idxbeast.py index|search [search string]'
-
-if __name__ == '__main__':
-    main()
 
