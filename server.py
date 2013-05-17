@@ -1,3 +1,4 @@
+import apsw
 import bottle
 
 import core
@@ -10,9 +11,17 @@ def bottle_idxbeast_images():
 
 @bottle.route('/idxbeast')
 def bottle_idxbeast():
-    query_str = bottle.request.query.q
-    total, cursor = core.search(db_path, query_str, 20, 0)
-    return bottle.template('idxbeast', cursor=cursor)
+    doc_id = bottle.request.query.d
+    if doc_id:
+        with apsw.Connection(db_path) as conn:
+            for loc, in conn.cursor().execute('SELECT locator FROM doc WHERE id=?', (doc_id,)):
+                with open(loc, 'r') as f:
+                    return f.read()
+            return 'Document not found'
+    else:
+        query_str = bottle.request.query.q
+        total, cursor = core.search(db_path, query_str, 20, 0)
+        return bottle.template('idxbeast', cursor=cursor)
 
 def run(_db_path):
     global db_path

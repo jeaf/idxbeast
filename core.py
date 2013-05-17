@@ -258,7 +258,7 @@ def search(db_path, words, limit, offset):
         total = 0
 
     # Return search results
-    return total, cur.execute('''SELECT doc.locator, SUM(search.relev), doc.title FROM doc
+    return total, cur.execute('''SELECT doc.id, doc.locator, SUM(search.relev), doc.title FROM doc
                                  INNER JOIN search ON main.doc.id = search.doc_id
                                  GROUP BY main.doc.id HAVING COUNT(1) = ?
                                  ORDER BY SUM(search.relev) DESC

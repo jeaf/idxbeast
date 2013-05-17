@@ -322,7 +322,7 @@ def main(cmd, args):
         elapsed_time = time.clock() - start_time
         print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
         syncMenu = Menu()
-        for locator, relev, title in cur:
+        for id, locator, relev, title in cur:
             disp_str = '[{}] {}'.format(relev, title if title else locator)
             syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
         if syncMenu.items:
