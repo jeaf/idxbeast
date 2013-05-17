@@ -10,7 +10,7 @@
         Query: <input type="text" name="q"/><input type="submit" value="Search"/>
       </form>
       <div>
-        % for locator, relev, title, title_only in cursor:
+        % for locator, relev, title in cursor:
           <p>{{locator}}</p>
         % end
       </div>

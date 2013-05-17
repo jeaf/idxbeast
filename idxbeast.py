@@ -55,7 +55,7 @@ def validate_nb_procs(nb_procs):
 def main():
 
     # Check the first argument for the command name
-    supported_cmds = ['index', 'search']
+    supported_cmds = ['index', 'search', 'server']
     cmd = sys.argv[1] if len(sys.argv) > 1 else None
     if not cmd in supported_cmds:
         print 'Error: invalid command.'

@@ -21,6 +21,7 @@ import win32com
 import win32console
 
 import core
+import server
 
 class MenuDoc(object):
     def __init__(self, locator, relev, title):
@@ -387,6 +388,10 @@ def main(cmd, args):
         print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
         return
 
-    # Unknown command, print usage
-    print 'Usage: idxbeast.py index|search [search string]'
+    # Launch server
+    if cmd == 'server':
+        server.run(args.db)
+
+    # Unknown command, raise exception
+    raise Exception('Unknown command: {}'.format(cmd))
 
