@@ -29,7 +29,8 @@ installed on your system.
 * **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
 
   A very useful module for Windows-specific Python scripts. idxbeast uses it
-  for COM communication with the Microsoft Outlook application.
+  for COM communication with the Microsoft Outlook application. It is also
+  used for implementing the console user interface.
 
 ### Optional
 
@@ -61,46 +62,26 @@ optimized library for indexing once it has been built.
 Usage
 -----
 
-### Indexing
+idxbeast is called from the command line in the following manner:
 
-Running the following command will index all locations defined in the
-configuration file:
+    idxbeast.py <command name> [command arguments]
 
-    idxbeast.py index
+Detailed usage for each command can be obtained by calling:
 
-### Searching
+    idxbeast.py <command name> -h
 
-#### From the command line
+The following commands are supported:
 
-Run the following command to search for a set of matching words:
-
-    idxbeast.py search "word1 word2 word3"
-
-All search words are implicitely joined with an AND operator, meaning that a
-document must contain all words in order to be recognized as matching.
-
-#### From the web application
-
-server.py can be used to start the basic idxbeast web server. Once the server
-is properly running, a browser can be used to load the search page, and search
-for documents.
+1. index
+2. search
+3. server
 
 Testing
 -------
 
-doctest is used for testing simple and low-level functions. `idxlib_test.py` is
-used to test the optimized C library.
-
-For now testing is somewhat disorganised, and lacking in many respects. The
-following are elements that should be improved in the future:
-
-* Provide a test.py main entry point for running all tests, or a subset of the
-  tests.
-* Include in the source distribution some relatively small test documents that
-  can be indexed and for which expected results can be defined.
-* Choose a well known package containing many text files (e.g., a specific
-  version of the Boost source distribution) that can be used to gather
-  performance data.
+doctest is used for testing simple and low-level functions. The `test.py`
+script is used to run all tests. `idxlib_test.py` is used to test the optimized
+C library.
 
 Todo
 ----
@@ -162,7 +143,17 @@ flexibility in the way indexed documents are searched. For example,
 
 ### Testing
 
-Testing should be improved, see the Testing section for more information.
+For now testing is somewhat disorganised, and lacking in many respects. The
+following are elements that should be improved in the future:
+
+* Provide a test.py main entry point for running all tests, or a subset of the
+  tests.
+* Include in the source distribution some relatively small test documents that
+  can be indexed and for which expected results can be defined.
+* Choose a well known package containing many text files (e.g., a specific
+  version of the Boost source distribution) that can be used to gather
+  performance data.
+
 
 Acknowledgements
 ----------------
