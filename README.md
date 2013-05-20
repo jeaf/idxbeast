@@ -174,3 +174,6 @@ Acknowledgements
 * The idxbeast image was adapted from
   http://commons.wikimedia.org/wiki/File:Chaos_Monster_and_Sun_God.png.
 
+* The test data files were taken from Project Gutenberg
+  ([www.gutenberg.org](www.gutenberg.org)).
+
