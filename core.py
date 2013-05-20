@@ -5,6 +5,8 @@ idxbeast core services.
 
 This modules provide the core indexing services for idxbeast.
 
+todo: fix multiprocessing logging, using Queue?
+
 Copyright (c) 2013, François Jeannotte.
 """
 
@@ -132,6 +134,7 @@ class Document(object):
             encoded_id = varint.encode([self.id])
             self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
         except Exception, ex:
+            print ex
             log.warning('Exception while processing {}, exception: {}'.format(self, ex))
             self.words = dict()
 
@@ -227,11 +230,16 @@ def iteremails(folder_filter):
             except Exception, ex:
                 log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
 
-def search(db_path, words, limit, offset):
+def search(db_conn, words, limit, offset):
     
     # Connect to the DB and create the necessary temporary memory tables
-    conn = apsw.Connection(db_path)
-    cur = conn.cursor()
+    cur = db_conn.cursor()
+    try:
+        cur.execute("DETACH search_db") # If the same connection is reused for
+                                        # more than one search, we must clear
+                                        # the search_db attached memory DB.
+    except apsw.SQLError:
+        pass
     cur.execute("ATTACH ':memory:' AS search_db")
     cur.execute('CREATE TABLE search_db.search(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
 
@@ -239,14 +247,14 @@ def search(db_path, words, limit, offset):
     search_tuples = []
     query_word_hashes = [(get_word_hash(w),) for w in unidecode.unidecode(words).translate(translate_table).split()]
     for size,word_hash in cur.executemany('SELECT size,id FROM match WHERE id=?', query_word_hashes):
-        with conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
+        with db_conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
             buf = bytearray(size)
             blob.readinto(buf, 0, size)
             int_list = varint.decode(buf)
             assert len(int_list) % 2 == 0, 'int_list should contain n groups of doc_id,relev'
             for i in range(0, len(int_list), 2):
                 search_tuples.append((word_hash, int_list[i], int_list[i+1]))
-    with conn:  
+    with db_conn:  
         cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
 
     # Figure out the total number of results

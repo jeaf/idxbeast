@@ -8,6 +8,7 @@ This module implements a console user interface for idxbeast.
 Copyright (c) 2013, François Jeannotte.
 """
 
+import apsw
 import ctypes
 import datetime
 import msvcrt
@@ -318,7 +319,7 @@ def main(cmd, args):
     if cmd == 'search':
         print 'Executing search...'
         start_time = time.clock()
-        total, cur = core.search(args.db, ' '.join(args.word), 20, 0)
+        total, cur = core.search(apsw.Connection(args.db), ' '.join(args.word), 20, 0)
         elapsed_time = time.clock() - start_time
         print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
         syncMenu = Menu()
