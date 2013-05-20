@@ -5,9 +5,9 @@ import core
 
 db_path = None
 
-@bottle.route('/idxbeast/images/idxbeast.jpg')
+@bottle.route('/idxbeast/images/idxbeast_small.jpg')
 def bottle_idxbeast_images():
-    return bottle.static_file('idxbeast.jpg', '.')
+    return bottle.static_file('idxbeast_small.jpg', '.')
 
 @bottle.route('/idxbeast')
 def bottle_idxbeast():
@@ -15,7 +15,8 @@ def bottle_idxbeast():
     if doc_id:
         with apsw.Connection(db_path) as conn:
             for loc, in conn.cursor().execute('SELECT locator FROM doc WHERE id=?', (doc_id,)):
-                with open(loc, 'r') as f:
+                bottle.response.content_type = 'text/plain; charset=UTF8'
+                with open(unicode(loc), 'r') as f:
                     return f.read()
             return 'Document not found'
     else:

@@ -327,21 +327,19 @@ def main(cmd, args):
             syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
         if syncMenu.items:
             res = syncMenu.show(sort=True)
-            if not res:
-                return # This means the user pressed ESC in the menu, abort processing
-            selected_docs = []
-            print
-            for item in syncMenu.items:
-                if item.actions[0] == '*':
-                    selected_docs.append(item.obj)
-            for selected_doc in selected_docs:
-                selected_doc.activate()
+            if res:
+                selected_docs = []
+                print
+                for item in syncMenu.items:
+                    if item.actions[0] == '*':
+                        selected_docs.append(item.obj)
+                for selected_doc in selected_docs:
+                    selected_doc.activate()
         else:
             print 'No results found.'
-        return
 
     # Run indexing
-    if cmd == 'index':
+    elif cmd == 'index':
 
         # Launch indexing
         print 'Indexing sources:'
@@ -386,12 +384,12 @@ def main(cmd, args):
         elapsed_time = time.clock() - start_time
         print
         print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
-        return
 
     # Launch server
-    if cmd == 'server':
+    elif cmd == 'server':
         server.run(args.db)
 
     # Unknown command, raise exception
-    raise Exception('Unknown command: {}'.format(cmd))
+    else:
+        raise Exception('Unknown command: {}'.format(cmd))
 

@@ -1,20 +1,31 @@
 <html>
-  <head>
-    <style type="text/css">
-    </style>
-  </head>
-  <body>
-    <div><img src="/idxbeast/images/idxbeast.jpg"></img></div>
-    <div>
-      <form name="search_form">
-        Query: <input type="text" name="q"/><input type="submit" value="Search"/>
-      </form>
-      <div>
-        % for id, locator, relev, title in cursor:
-          <p><a href="/idxbeast?d={{id}}">{{locator}}</a></p>
-        % end
-      </div>
-    </div>
-  </body>
+    <head>
+        <style type="text/css">
+            #search_input
+            {
+                text-align:center;
+            }
+            img
+            {
+                margin: 20px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id=search_input>
+            <div><img src="/idxbeast/images/idxbeast_small.jpg"></img></div>
+            <div>
+              <form name="search_form">
+                <input name="q" type="text" size="50"/><input type="submit" value="Search"/>
+              </form>
+            </div>
+        </div>
+        <hr />
+        <div id=search_results>
+          % for id, locator, relev, title in cursor:
+            <p><a href="/idxbeast?d={{id}}">{{locator}}</a></p>
+          % end
+        </div>
+    </body>
 </html>
 
