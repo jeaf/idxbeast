@@ -5,7 +5,11 @@ idxbeast core services.
 
 This modules provide the core indexing services for idxbeast.
 
-todo: fix multiprocessing logging, using Queue?
+Since this module uses multiprocessing, logging requires special care. A
+module-level function called log() exists, and returns an object with an
+interface similar to that of the logging module loggers. Internally, this
+object will use a Queue and a thread to make sure logs from multiple processes
+are logged correctly.
 
 Copyright (c) 2013, François Jeannotte.
 """
@@ -22,6 +26,7 @@ import Queue
 import string
 import struct
 import time
+import threading
 import traceback
 
 import apsw
@@ -31,13 +36,63 @@ import win32com.client
 import charmap_gen
 import varint
 
-# Initialize logger, initially without handler. Handlers are added by users of
-# this module. For instance, the idxbeast.py entry point script will setup
-# file logging, if enabled. A gui module (does not exist yet) could also setup
-# a handler that logs into a window, for example.
-log = logging.getLogger('core')
-log.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+class MultiprocessingLogger(object):
+    """
+    This class implements support for proper logging with the multiprocessing
+    module. All logs are sent to a queue, and a thread is used to empty the
+    queue and log the messages.
+
+    Initially, the logger has no handler. Handlers are added by users of this
+    module. For instance, the idxbeast.py entry point script will setup file
+    logging, if enabled. A gui module (does not exist yet) could also setup a
+    handler that logs into a window, for example.
+    """
+
+    logobj = logging.getLogger('core')
+    logobj.setLevel(logging.DEBUG)
+    formatter  = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    log_thread = None
+    log_queue  = None
+
+    def __init__(self):
+        """
+        Initialize the logger with a None queue. The queue will need to be set
+        by a call to set_queue, otherwise nothing will be logged.
+        """
+        self.log_queue = None
+
+    def set_queue(self, queue):
+        """The queue must me explicitely set by each spawned process."""
+        self.log_queue = queue
+
+    def add_handler(self, handler):
+        """
+        The add_handler call will be made by external clients of the core
+        module. For that reason, this function is used to create the thread
+        that will empty the queue and log the messages.
+        """
+        if log_thread == None:
+            
+
+    def warning(self, msg):
+        """Log a warning message."""
+        if self.log_queue != None:
+            self.log_queue.put((logging.WARNING, msg))
+
+    def error(self, msg):
+        """Log an error message."""
+        if self.log_queue != None:
+            self.log_queue.put((logging.ERROR, msg))
+
+mplog_ = None
+def log():
+    """
+    Returns a MultiprocessingLogger object specific to that module instance.
+    """
+    global mplog_
+    if mplog_ == None:
+        mplog_ = MultiprocessingLogger()
+    return mplog_
 
 def create_tables(conn):
     """
@@ -134,8 +189,8 @@ class Document(object):
             encoded_id = varint.encode([self.id])
             self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
         except Exception, ex:
-            print ex
-            log.warning('Exception while processing {}, exception: {}'.format(self, ex))
+            log().warning('Exception while processing {}, exception: {}'.
+                          format(self, ex))
             self.words = dict()
 
 class File(Document):
@@ -228,7 +283,8 @@ def iteremails(folder_filter):
                     except Exception, ex:
                         yield None, ex
             except Exception, ex:
-                log.warning('Exception while processing Outlook folder, exception: {}'.format(ex))
+                log().warning('Exception while processing Outlook folder, '
+                              'exception: {}'.format(ex))
 
 def search(db_conn, words, limit, offset):
     
@@ -239,7 +295,7 @@ def search(db_conn, words, limit, offset):
                                         # more than one search, we must clear
                                         # the search_db attached memory DB.
     except apsw.SQLError:
-        pass
+        pass # If search_db does not exist, an exception is thrown; ignore it.
     cur.execute("ATTACH ':memory:' AS search_db")
     cur.execute('CREATE TABLE search_db.search(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
 
@@ -288,7 +344,7 @@ class DispatcherSharedData(ctypes.Structure):
                 ('db_status'       , ctypes.c_char*40 )]
 
 
-def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, srcs, exts):
+def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, srcs, exts, log_q):
 
     # Create the document queue and worker processes
     index_q = mp.Queue()
@@ -319,7 +375,7 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
             dispatcher_shared_data.listed_count += 1
 
             if error != None:
-                log.warning('Cannot process file {}, error: {}'.format(f, error))
+                log().warning('Cannot process file {}, error: {}'.format(f, error))
                 dispatcher_shared_data.error_count += 1
                 continue
 
@@ -338,7 +394,8 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
                 dispatcher_shared_data.uptodate_count += 1
 
         except Exception, ex:
-            log.error('Dispatcher: error while processing doc {}, error: {}'.format(doc, traceback.format_exc()))
+            log().error('Dispatcher: error while processing doc {}, error: {}'.
+                        format(doc, traceback.format_exc()))
 
     # Wait on worker processes
     dispatcher_shared_data.status = 'Waiting on indexer processes'
@@ -465,6 +522,11 @@ def start_indexing(db_path, srcs, nbprocs, exts):
     with apsw.Connection(db_path) as conn:
         create_tables(conn)
 
+    # Create the log queue and its processing thread
+    log_q = mp.Queue()
+    log_t = threading.Thread(target=logger_thread, args=(log_q,))
+    log_t.start()
+
     # Initialize shared mem structures
     dstat = mp.Value(DispatcherSharedData)
     dstat.status = 'Starting'
@@ -473,7 +535,7 @@ def start_indexing(db_path, srcs, nbprocs, exts):
         dat.status = ''
 
     # Launch dispatcher process
-    disp = mp.Process(target=dispatcher_proc, args=(db_path, dstat, istat_array, srcs, exts))
+    disp = mp.Process(target=dispatcher_proc, args=(db_path, dstat, istat_array, srcs, exts, log_q))
     disp.start()
     return dstat, istat_array
 
