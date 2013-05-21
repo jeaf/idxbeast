@@ -83,6 +83,10 @@ def testdata():
         elapsed_time = time.clock() - start_time
         print 'Indexing completed in {} seconds'.format(elapsed_time)
 
+        # Figure out the size of the DB
+        print 'Size of DB: {} bytes'.format(os.path.getsize(db_path))
+
+        # Execute and validate some search queries
         with closing(apsw.Connection(db_path)) as conn:
             test_search(1, conn, 'quebec montreal')
             test_search(2, conn, 'pauvre')
