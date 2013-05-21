@@ -73,10 +73,15 @@ def testdata():
             if fnmatch.fnmatch(f, 'testdata_*.*'):
                 shutil.copyfile(op.join(script_dir, f),
                                 op.join(testdata_dir, f))
+
+        # Run indexing, and time its execution
+        start_time = time.clock()
         dstat, istat_array  = core.start_indexing(db_path, [testdata_dir],
                                                   1, 'txt')
         while dstat.status != 'Idle':
-            time.sleep(0.05)
+            time.sleep(0.01)
+        elapsed_time = time.clock() - start_time
+        print 'Indexing completed in {} seconds'.format(elapsed_time)
 
         with closing(apsw.Connection(db_path)) as conn:
             test_search(1, conn, 'quebec montreal')
