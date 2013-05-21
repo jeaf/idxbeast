@@ -176,19 +176,18 @@ def get_word_hash(word):
 class Document(object):
     def index(self):
         try:
-            words = collections.Counter()
-            current_relev_value = 100
+            words = dict()
             for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1 and len(w) < 40):
-                words[w] += current_relev_value
-                if current_relev_value > 0.1:
-                    current_relev_value -= 0.1
+                word_counters = words.setdefault(w, [0,0])
+                word_counters[0] += 1
+                word_counters[1] += i
             self.word_cnt        = i + 1
             self.unique_word_cnt = len(words)
             encoded_id = varint.encode([self.id])
-            self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([int(relev)])))) for w,relev in words.iteritems() )
+            self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([counters[0]])))) for w,counters in words.iteritems() )
         except Exception, ex:
             log.warning('Exception while processing {}, exception: {}'.
-                          format(self, ex))
+                        format(self, ex))
             self.words = dict()
 
 class File(Document):
