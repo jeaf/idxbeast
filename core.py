@@ -177,14 +177,16 @@ class Document(object):
     def index(self):
         try:
             words = dict()
+            i = -1 # For empty files, word_cnt will be -1 + 1, thus 0
             for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1 and len(w) < 40):
                 word_counters = words.setdefault(w, [0,0])
                 word_counters[0] += 1
                 word_counters[1] += i
             self.word_cnt        = i + 1
             self.unique_word_cnt = len(words)
-            encoded_id = varint.encode([self.id])
-            self.words = dict( (get_word_hash(w), bytearray().join((encoded_id, varint.encode([counters[0]])))) for w,counters in words.iteritems() )
+            self.words = dict((get_word_hash(w), varint.encode(
+                              [self.id, cnts[0], int(cnts[1]/cnts[0])]))
+                              for w,cnts in words.iteritems())
         except Exception, ex:
             log.warning('Exception while processing {}, exception: {}'.
                         format(self, ex))
@@ -294,7 +296,13 @@ def search(db_conn, words, limit, offset):
     except apsw.SQLError:
         pass # If search_db does not exist, an exception is thrown; ignore it.
     cur.execute("ATTACH ':memory:' AS search_db")
-    cur.execute('CREATE TABLE search_db.search(id INTEGER PRIMARY KEY, word_hash INTEGER NOT NULL, doc_id INTEGER NOT NULL, relev INTEGER NOT NULL)')
+    cur.execute('CREATE TABLE search_db.search('
+                'id        INTEGER PRIMARY KEY,'
+                'word_hash INTEGER NOT NULL,'
+                'doc_id    INTEGER NOT NULL,'
+                'relev     INTEGER NOT NULL,'
+                'count     INTEGER NOT NULL,'
+                'avg_idx   INTEGER NOT NULL)')
 
     # Get all the matches blobs from the DB and expand them into the temporary search table
     search_tuples = []
@@ -304,26 +312,37 @@ def search(db_conn, words, limit, offset):
             buf = bytearray(size)
             blob.readinto(buf, 0, size)
             int_list = varint.decode(buf)
-            assert len(int_list) % 2 == 0, 'int_list should contain n groups of doc_id,relev'
-            for i in range(0, len(int_list), 2):
-                search_tuples.append((word_hash, int_list[i], int_list[i+1]))
+            assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+            for i in range(0, len(int_list), 3):
+                # Append the values in the search_tuple. The values are:
+                # 1. The word hash
+                # 2. The doc ID
+                # 3. The relevance (for now it is the count, should be replaced
+                #    with a proper combination of count and average index.
+                # 4. The count
+                # 5. The average index
+                search_tuples.append((word_hash, int_list[i], int_list[i+1],
+                                      int_list[i+1], int_list[i+2]))
     with db_conn:  
-        cur.executemany('INSERT INTO search(word_hash, doc_id, relev) VALUES (?,?,?)', search_tuples)
+        cur.executemany('INSERT INTO search(word_hash, doc_id, relev, count, avg_idx) VALUES (?,?,?,?,?)', search_tuples)
 
     # Figure out the total number of results
-    for total, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
-                                                       INNER JOIN search ON main.doc.id = search.doc_id
-                                                       GROUP BY main.doc.id HAVING COUNT(1) = ?)''', (len(query_word_hashes),)):
+    for tot, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
+                                                     INNER JOIN search ON
+                                                     main.doc.id = search.doc_id
+                                                     GROUP BY main.doc.id
+                                                     HAVING COUNT(1) = ?)''',
+                                                     (len(query_word_hashes),)):
         break
     else:
-        total = 0
+        tot = 0
 
     # Return search results
-    return total, cur.execute('''SELECT doc.id, doc.locator, SUM(search.relev), doc.title FROM doc
-                                 INNER JOIN search ON main.doc.id = search.doc_id
-                                 GROUP BY main.doc.id HAVING COUNT(1) = ?
-                                 ORDER BY SUM(search.relev) DESC
-                                 LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
+    return tot, cur.execute('''SELECT doc.id, doc.locator, SUM(search.relev), doc.title FROM doc
+                               INNER JOIN search ON main.doc.id = search.doc_id
+                               GROUP BY main.doc.id HAVING COUNT(1) = ?
+                               ORDER BY SUM(search.relev) DESC
+                               LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
 
 class IndexerSharedData(ctypes.Structure):
     _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
