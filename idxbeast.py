@@ -69,7 +69,8 @@ def main():
         sys.exit(0)
 
     # Create the parser object, add common arguments
-    parser = argparse.ArgumentParser(prog='{} {}'.format(op.basename(sys.argv[0]), cmd))
+    parser = argparse.ArgumentParser(prog='{} {}'.format(
+                                     op.basename(sys.argv[0]), cmd))
     parser.add_argument('--db', type=validate_db,
                         default=validate_db('~\\idxbeast.db'),
                         help='The path to the DB file to connect to. The '
@@ -80,7 +81,7 @@ def main():
                         default=validate_logfile('~\idxbeast.log'),
                         help='The path to the log file. More files may be '
                              'created if the log file gets too big. For '
-                             'example, idxbeast.log.1, idxbeast.log.2, etc.'
+                             'example, idxbeast.log.1, idxbeast.log.2, etc. '
                              'The tilde (~) symbol can be used in '
                              'the path, and will expand to the current '
                              'user\'s home directory. Defaults to '
@@ -90,22 +91,23 @@ def main():
     if cmd == 'index':
         parser.add_argument('src', nargs='+', type=validate_src,
                             help='One or more indexing sources. The specified '
-                                 'directories will be recursively indexed. The '
-                                 'tilde (~) symbol can be used in the path, and '
-                                 'will expand to the current user\'s home '
-                                 'directory.')
+                                 'directories will be recursively indexed. '
+                                 'The tilde (~) symbol can be used in the '
+                                 'path, and will expand to the current '
+                                 'user\'s home directory.')
         parser.add_argument('--nbprocs', default=validate_nb_procs(0),
                             type=validate_nb_procs,
-                            help='The number of indexing processes, an integer '
-                                 'between 0 and 16 inclusive. 0 (the default) '
-                                 ' will use the number of logical CPUs.')
+                            help='The number of indexing processes, an '
+                                 'integer between 0 and 16 inclusive. 0 (the '
+                                 'default) will use the number of logical '
+                                 'CPUs.')
         parser.add_argument('--exts',
-                            default='bat c cpp cs cxx h hpp htm html ini java js '
-                                    'log md py rest rst txt xml yaml yml',
-                            help='A space separated list of file extensions to '
-                                 'consider for indexing. The default is a list of '
-                                 'the most common text files (e.g., bat, cxx, '
-                                 'xml, etc.)')
+                            default='bat c cpp cs cxx h hpp htm html ini java '
+                                    'js log md py rest rst txt xml yaml yml',
+                            help='A space separated list of file extensions '
+                                 'to consider for indexing. The default is a '
+                                 'list of the most common text files (e.g., '
+                                 'bat, cxx, xml, etc.)')
 
     # Add search specific arguments
     elif cmd == 'search':
@@ -115,14 +117,17 @@ def main():
     # Parse args
     args = parser.parse_args(sys.argv[2:])
 
-    # If the command is search, the DB must already exists
-    if cmd == 'search' and not op.isfile(args.db):
+    # If the command is search, server, or stats, the DB must already exists
+    if cmd in 'search server stats'.split() and not op.isfile(args.db):
         print 'Error: the specified DB ({}) does not exist.'.format(args.db)
-        print 'The index command should be run at least once before executing a search.'
+        print 'The index command should be run at least once before executing'
+        print 'a search, server, or stats command.'
         sys.exit(0)
 
     # Setup file logging in the core module
-    log_handler = logging.handlers.RotatingFileHandler(args.logfile, maxBytes=10*1024**2, backupCount=5)
+    log_handler = logging.handlers.RotatingFileHandler(args.logfile,
+                                                       maxBytes=10*1024**2,
+                                                       backupCount=5)
     log_handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] '
                                                '%(levelname)s: %(message)s'))
     core.log.add_handler(log_handler)
