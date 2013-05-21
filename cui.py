@@ -357,8 +357,9 @@ def main(cmd, args):
         # Launch indexing
         print 'Indexing sources:'
         for i, src in enumerate(args.src):
-            print '{}: {}'.format(i, src)
-        print 'DB path: {}'.format(args.db)
+            print '{}: {}'.format(i + 1, src)
+        print 'DB path : {}'.format(args.db)
+        print 'Log file: {}'.format(args.logfile)
         start_time = time.clock()
         dstat, istat_array = core.start_indexing(args.db, args.src, args.nbprocs, args.exts)
 
