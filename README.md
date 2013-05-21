@@ -75,6 +75,7 @@ The following commands are supported:
 1. index
 2. search
 3. server
+4. stats
 
 Testing
 -------
