@@ -73,7 +73,6 @@ def testdata():
             if fnmatch.fnmatch(f, 'testdata_*.*'):
                 shutil.copyfile(op.join(script_dir, f),
                                 op.join(testdata_dir, f))
-        #print repr(testdata_dir)
         dstat, istat_array  = core.start_indexing(db_path, [testdata_dir],
                                                   1, 'txt')
         while dstat.status != 'Idle':
@@ -87,8 +86,9 @@ if __name__ == '__main__':
 
     # Add a console handler for loggers
     log_handler = logging.StreamHandler()
-    log_handler.setFormatter(core.log_formatter)
-    core.log.addHandler(log_handler)
+    log_handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] '
+                                               '%(levelname)s: %(message)s'))
+    core.log.add_handler(log_handler)
 
     # Run all doctest examples
     print 'Running doctest for all modules...'

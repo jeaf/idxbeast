@@ -123,8 +123,9 @@ def main():
 
     # Setup file logging in the core module
     log_handler = logging.handlers.RotatingFileHandler(args.logfile, maxBytes=10*1024**2, backupCount=5)
-    log_handler.setFormatter(core.log_formatter)
-    core.log.addHandler(log_handler)
+    log_handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] '
+                                               '%(levelname)s: %(message)s'))
+    core.log.add_handler(log_handler)
 
     # Call console user interface
     return cui.main(cmd, args)
