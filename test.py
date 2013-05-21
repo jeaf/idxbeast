@@ -11,6 +11,7 @@ import tempfile
 import time
 
 import core
+import cui
 
 script_dir = op.dirname(op.abspath(__file__))
 
@@ -84,7 +85,7 @@ def testdata():
         print 'Indexing completed in {} seconds'.format(elapsed_time)
 
         # Figure out the size of the DB
-        print 'Size of DB: {} bytes'.format(os.path.getsize(db_path))
+        print 'Size of DB: {}'.format(cui.sizeof_fmt(os.path.getsize(db_path)))
 
         # Execute and validate some search queries
         with closing(apsw.Connection(db_path)) as conn:

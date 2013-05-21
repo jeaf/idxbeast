@@ -9,6 +9,7 @@ Copyright (c) 2013, François Jeannotte.
 """
 
 import apsw
+from   contextlib import closing
 import ctypes
 import datetime
 import msvcrt
@@ -23,6 +24,17 @@ import win32console
 
 import core
 import server
+
+def sizeof_fmt(num):
+    """
+    Display a number of bytes in a human readable format. Taken from:
+    http://stackoverflow.com/questions/1094841/reusable-library-to-get-human-readable-version-of-file-size
+    """
+    for x in ['bytes','KB','MB','GB']:
+        if num < 1024.0 and num > -1024.0:
+            return "%3.1f %s" % (num, x)
+        num /= 1024.0
+    return "%3.1f %s" % (num, 'TB')
 
 class MenuDoc(object):
     def __init__(self, locator, relev, title):
@@ -389,6 +401,16 @@ def main(cmd, args):
     # Launch server
     elif cmd == 'server':
         server.run(args.db)
+
+    # Display stats
+    elif cmd == 'stats':
+        print 'Size of DB       : {}'.format(sizeof_fmt(os.path.getsize(args.db)))
+        with closing(apsw.Connection(args.db)) as conn:
+            cur = conn.cursor()
+            for cnt, in cur.execute('SELECT COUNT(*) FROM match;'):
+                print 'Unique words     : {}'.format(cnt)
+            for cnt, in cur.execute('SELECT COUNT(*) FROM doc;'):
+                print 'Indexed documents: {}'.format(cnt)
 
     # Unknown command, raise exception
     else:
