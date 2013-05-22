@@ -61,7 +61,7 @@ uint64 fnv_internal(char* s, uint64 hash)
 {
     while (*s)
     {
-        hash ^= *s++;
+        hash ^= (unsigned char)*s++;
         hash *= FNV_64_PRIME;
     }
     return hash;
