@@ -67,12 +67,9 @@ uint64 fnv_internal(char* s, uint64 hash)
     return hash;
 }
 
-DLLEXP int fnv(char* s, unsigned* oHashLow, unsigned* oHashHigh)
+DLLEXP uint64 fnv(char* s)
 {
-    uint64 h = fnv_internal(s, FNV1A_64_INIT);
-    *oHashLow  = h & 0xffffffff;
-    *oHashHigh = h >> 32;
-    return 0;
+    return fnv_internal(s, FNV1A_64_INIT);
 }
 
 DLLEXP int index(unsigned* utf32, unsigned len)

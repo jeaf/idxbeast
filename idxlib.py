@@ -2,11 +2,15 @@
 
 import binascii
 from   ctypes import *
+import hashlib
 import os
+import struct
+import time
 
 try:
     lib = cdll.idxlib
-    lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
+    lib.fnv.argtypes = [c_char_p]
+    lib.fnv.restype = c_ulonglong
 except:
     lib = None
 
@@ -29,10 +33,7 @@ def fnv(s):
     0L
     """
     if lib:
-        low  = c_uint()
-        high = c_uint()
-        res  = lib.fnv(s, byref(low), byref(high))
-        return (high.value << 32) | low.value
+        return lib.fnv(s)
     else:
         h = 14695981039346656037L # 64 bit offset basis
         for c in s:
@@ -40,6 +41,29 @@ def fnv(s):
             h *= 1099511628211L # 64 bit FNV prime
             h &= 0xFFFFFFFFFFFFFFFF
         return h
+
+def perf_test():
+    global lib
+    lib = None
+    start_time = time.clock()
+    for i in range(100000):
+        fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
+    elapsed_time = time.clock() - start_time
+    print 'Python fnv exec time: {} seconds'.format(elapsed_time)
+
+    lib = cdll.idxlib
+    start_time = time.clock()
+    for i in range(100000):
+        fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
+    elapsed_time = time.clock() - start_time
+    print 'c fnv exec time     : {} seconds'.format(elapsed_time)
+
+    word_hash_struct = struct.Struct('<xxxxxxxxQ')
+    start_time = time.clock()
+    for i in range(100000):
+        word_hash_struct.unpack(hashlib.md5('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w').digest())[0] & 0x00000000000000000FFFFFFFFFFFFFFF
+    elapsed_time = time.clock() - start_time
+    print 'Python MD5 exec time: {} seconds'.format(elapsed_time)
 
 def main():
 
