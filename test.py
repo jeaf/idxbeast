@@ -106,7 +106,7 @@ if __name__ == '__main__':
     print 'Done.'
 
     # Index the test data files, and validate the results
-    print 'Indexing and querying test data files...'
-    testdata()
-    print 'Done.'
+    #print 'Indexing and querying test data files...'
+    #testdata()
+    #print 'Done.'
 

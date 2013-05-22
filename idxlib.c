@@ -1,9 +1,9 @@
-#include "fnv.h"
-
 #define DLLEXP __attribute__((dllexport))
-#define hash_bits    18
-#define bucket_count (1 << hash_bits)
-#define hash_mask    (bucket_count - 1)
+#define hash_bits     18
+#define bucket_count  (1 << hash_bits)
+#define hash_mask     (bucket_count - 1)
+#define FNV1A_64_INIT 14695981039346656037ULL
+#define FNV_64_PRIME  1099511628211ULL
 
 typedef unsigned long long uint64;
 
@@ -55,12 +55,23 @@ bucket* ht_lookup(htable* table, uint64 key)
     }
 }
 
+// Algorithm and constants taken from
+// http://www.isthe.com/chongo/tech/comp/fnv/
+uint64 fnv_internal(char* s, uint64 hash)
+{
+    while (*s)
+    {
+        hash ^= *s++;
+        hash *= FNV_64_PRIME;
+    }
+    return hash;
+}
+
 DLLEXP int fnv(char* s, unsigned* oHashLow, unsigned* oHashHigh)
 {
-    Fnv64_t h = fnv_64a_str(s, FNV1A_64_INIT);
-    printf("hash of %s: %x %x\n", s, h.w32[0], h.w32[1]);
-    *oHashLow  = h.w32[0];
-    *oHashHigh = h.w32[1];
+    uint64 h = fnv_internal(s, FNV1A_64_INIT);
+    *oHashLow  = h & 0xffffffff;
+    *oHashHigh = h >> 32;
     return 0;
 }
 
@@ -82,19 +93,16 @@ DLLEXP int index(unsigned* utf32, unsigned len)
     while (len)
     {
         // Process current word
-        Fnv64_t h = FNV1A_64_INIT;
+        uint64 key = FNV1A_64_INIT;
         while (len && *charmap[*utf32])
         {
             //printf("Adding %s to current word\n", charmap[*utf32]);
-            h = fnv_64a_str(charmap[*utf32], h);
+            key = fnv_internal(charmap[*utf32], key);
             --len;
             ++utf32;
         }
 
         // Store info about current word
-        //printf("hash of current word: %x %x\n", h.w32[0], h.w32[1]);
-        //printf("hash of current word: %u %u\n", h.w32[0], h.w32[1]);
-        uint64 key = ((uint64)h.w32[1] << 32) | h.w32[0];
         //printf("key: %llx\n", key);
         bucket* b = ht_lookup(&ht, key);
         b->cnt     += 1;
@@ -124,10 +132,10 @@ DLLEXP int index(unsigned* utf32, unsigned len)
 
 DLLEXP int test()
 {
-    Fnv64_t h = fnv_64a_str("abc", FNV1A_64_INIT);
-    printf("hash of %s: %x %x\n", "abc", h.w32[0], h.w32[1]);
-    Fnv64_t h_a = fnv_64a_str("a", FNV1A_64_INIT);
-    printf("hash of %s: %x %x\n", "a  ", h_a.w32[0], h_a.w32[1]);
-    h = fnv_64a_str("bc", h_a);
-    printf("hash of %s: %x %x\n", "bc, with a init ", h.w32[0], h.w32[1]);
+    //Fnv64_t h = fnv_64a_str("abc", FNV1A_64_INIT);
+    //printf("hash of %s: %x %x\n", "abc", h.w32[0], h.w32[1]);
+    //Fnv64_t h_a = fnv_64a_str("a", FNV1A_64_INIT);
+    //printf("hash of %s: %x %x\n", "a  ", h_a.w32[0], h_a.w32[1]);
+    //h = fnv_64a_str("bc", h_a);
+    //printf("hash of %s: %x %x\n", "bc, with a init ", h.w32[0], h.w32[1]);
 }
