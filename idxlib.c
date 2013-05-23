@@ -4,8 +4,10 @@
 #define hash_mask     (bucket_count - 1)
 #define FNV1A_64_INIT 14695981039346656037ULL
 #define FNV_64_PRIME  1099511628211ULL
+#define TWO_63          9223372036854775808LL
 
 typedef unsigned long long uint64;
+typedef long long int64;
 
 extern char* charmap[0x10000];
 
@@ -67,9 +69,9 @@ uint64 fnv_internal(char* s, uint64 hash)
     return hash;
 }
 
-DLLEXP uint64 fnv(char* s)
+DLLEXP int64 fnv(char* s)
 {
-    return fnv_internal(s, FNV1A_64_INIT);
+    return fnv_internal(s, FNV1A_64_INIT) - TWO_63;
 }
 
 DLLEXP int index(unsigned* utf32, unsigned len)
