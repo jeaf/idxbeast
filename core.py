@@ -171,17 +171,10 @@ def get_word_hash(word):
 class Document(object):
     def index(self):
         try:
-            words = dict()
-            i = -1 # For empty files, word_cnt will be -1 + 1, thus 0
-            for i,w in enumerate(w for w in unidecode.unidecode(self.get_text()).translate(translate_table).split() if len(w) > 1 and len(w) < 40):
-                word_counters = words.setdefault(w, [0,0])
-                word_counters[0] += 1
-                word_counters[1] += i
-            self.word_cnt        = i + 1
+            words, word_cnt      = idxlib.index(self.id, self.get_text())
+            self.words           = words
+            self.word_cnt        = word_cnt
             self.unique_word_cnt = len(words)
-            self.words = dict((get_word_hash(w), varint.encode(
-                              [self.id, cnts[0], int(cnts[1]/cnts[0])]))
-                              for w,cnts in words.iteritems())
         except Exception, ex:
             log.warning('Exception while processing {}, exception: {}'.
                         format(self, ex))

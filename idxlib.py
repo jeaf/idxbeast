@@ -6,27 +6,35 @@ import os
 import struct
 import time
 
-def fnv_python(s):
+import unidecode
+
+import charmap_gen
+import core
+import varint
+
+translate_table = charmap_gen.create_translate_table()
+
+def fnv_(s):
     """
     Compute the 64 bit FNV hash of a string. The hash is interpreted as a
     signed integer because SQLite uses signed integers for the ROWID (the hash
     will be used as the ROWID).
 
-    >>> fnv_python('')
+    >>> fnv_('')
     -3750763034362895579L
-    >>> fnv_python('a')
+    >>> fnv_('a')
     -5808556873153909620L
-    >>> fnv_python('aa')
+    >>> fnv_('aa')
     620444549055354551L
-    >>> fnv_python('abcd')
+    >>> fnv_('abcd')
     -281581062704388899L
-    >>> fnv_python('foobar')
+    >>> fnv_('foobar')
     -8821353812377114648L
-    >>> long(fnv_python('\xd5\x6b\xb9\x53\x42\x87\x08\x36'))
+    >>> long(fnv_('\xd5\x6b\xb9\x53\x42\x87\x08\x36'))
     0L
-    >>> fnv_python('delta') == lib.fnv('delta')
+    >>> fnv_('delta') == lib.fnv('delta')
     True
-    >>> fnv_python('289uy4r98#delta') == lib.fnv('289uy4r98#delta')
+    >>> fnv_('289uy4r98#delta') == lib.fnv('289uy4r98#delta')
     True
     """
     h = 14695981039346656037L # 64 bit offset basis
@@ -37,22 +45,46 @@ def fnv_python(s):
     return c_longlong(h).value # Return as a signed long long so it can be used
                                # as a SQLite ROWID.
 
+def index_(docid, text):
+    """
+    Index a document, i.e., find all unique words, their frequencies, etc.
+    """
+    words = dict()
+    i = -1 # For empty files, word_cnt will be -1 + 1, thus 0
+    for i,w in enumerate(w for w in unidecode.unidecode(text).translate(translate_table).split() if len(w) > 1 and len(w) < 40):
+        word_counters = words.setdefault(w, [0,0])
+        word_counters[0] += 1
+        word_counters[1] += i
+    words = dict((core.get_word_hash(w), varint.encode(
+                 [docid, cnts[0], int(cnts[1]/cnts[0])]))
+                 for w,cnts in words.iteritems())
+    return words, i + 1
+
+def lib_index_(text):
+    """
+    Call library's implementation of index function.
+    """
+    pass
+
 try:
     # Load the C library
     lib = cdll.idxlib
     lib.fnv.argtypes = [c_char_p]
     lib.fnv.restype = c_longlong
 
-    # Set the public fnv function to point to lib.fnv
-    fnv = lib.fnv
+    # Set the public functions to point to the library
+    fnv   = lib.fnv
+    #index = lib_index_
+    index = index_
 except:
     # Could not load the library, use Python implementation
-    fnv = fnv_python
+    fnv   = fnv_
+    index = index_
 
 def perf_test():
     start_time = time.clock()
     for i in range(100000):
-        fnv_python('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
+        fnv_('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
     elapsed_time = time.clock() - start_time
     print 'Python fnv exec time: {} seconds'.format(elapsed_time)
 
