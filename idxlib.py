@@ -41,7 +41,6 @@ def fnv(s):
     0L
     """
     if lib:
-    #if True:
         return lib.fnv(s)
     else:
         h = 14695981039346656037L # 64 bit offset basis

@@ -17,6 +17,7 @@ import collections
 import ctypes
 import datetime
 import hashlib
+import idxlib
 import itertools
 import logging
 import multiprocessing as mp
@@ -155,21 +156,16 @@ doctype_email = 2
 # Get the translation table from the charmap generator script
 translate_table = charmap_gen.create_translate_table()
 
-# This Struct instance will be used to extract a 60-bit int from a MD5 hash.
-word_hash_struct = struct.Struct('<xxxxxxxxQ')
 word_hash_cache = dict()
 def get_word_hash(word):
     """
-    Create a 60 bit hash for a given word.
-
-    >>> get_word_hash('abc')
-    180110074134370006L
+    Create a 64 bit hash for a given word.
     """
-    if len(word_hash_cache) > 10000:
+    if len(word_hash_cache) > 1000000:
         word_hash_cache.clear()
     word_hash = word_hash_cache.get(word, None)
     if word_hash == None:
-        word_hash = word_hash_struct.unpack(hashlib.md5(word).digest())[0] & 0x00000000000000000FFFFFFFFFFFFFFF
+        word_hash = idxlib.fnv(word)
         word_hash_cache[word] = word_hash
     return word_hash
 
