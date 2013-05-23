@@ -1,6 +1,5 @@
 #coding: latin-1
 
-import binascii
 from   ctypes import *
 import hashlib
 import os
@@ -11,36 +10,32 @@ def fnv_python(s):
     """
     Compute the 64 bit FNV hash of a string. The hash is interpreted as a
     signed integer because SQLite uses signed integers for the ROWID (the hash
-    will be used as the ROWID). The test data used in the first three doctest
-    examples was taken from:
-    http://tools.ietf.org/html/draft-eastlake-fnv-05#page-15
-    The last doctest example (the one with a result of 0L) comes from the
-    zero hash challenges (#8) on the FNV home page:
-    http://www.isthe.com/chongo/tech/comp/fnv/index.html#zero-hash
+    will be used as the ROWID).
 
-    Note that for the doctest examples we add 2**63 because the fnv function
-    returns values between -2**63 and 2**63-1 (the valid range for SQLite
-    ROWID integers). However, the test vector data is unsigned.
-    
-    >>> fnv_python('') + 2**63
-    14695981039346656037L
-    >>> fnv_python('a') + 2**63
-    12638187200555641996L
-    >>> fnv_python('abcd') + 2**63
-    18165163011005162717L
-    >>> fnv_python('foobar') + 2**63
-    9625390261332436968L
-    >>> long(fnv_python('\xd5\x6b\xb9\x53\x42\x87\x08\x36')) + 2**63
+    >>> fnv_python('')
+    -3750763034362895579L
+    >>> fnv_python('a')
+    -5808556873153909620L
+    >>> fnv_python('aa')
+    620444549055354551L
+    >>> fnv_python('abcd')
+    -281581062704388899L
+    >>> fnv_python('foobar')
+    -8821353812377114648L
+    >>> long(fnv_python('\xd5\x6b\xb9\x53\x42\x87\x08\x36'))
     0L
+    >>> fnv_python('delta') == lib.fnv('delta')
+    True
+    >>> fnv_python('289uy4r98#delta') == lib.fnv('289uy4r98#delta')
+    True
     """
     h = 14695981039346656037L # 64 bit offset basis
     for c in s:
         h ^= ord(c)
         h *= 1099511628211L # 64 bit FNV prime
         h &= 0xFFFFFFFFFFFFFFFF
-    return h - 2**63 # To bring the number in the signed range; this
-                     # function must return a signed integer to be used as
-                     # a ROWID in SQLite.
+    return c_longlong(h).value # Return as a signed long long so it can be used
+                               # as a SQLite ROWID.
 
 try:
     # Load the C library
@@ -77,6 +72,7 @@ def perf_test():
 def main():
 
     perf_test()
+    return
 
     os.system('make')
 

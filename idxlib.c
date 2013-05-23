@@ -4,10 +4,9 @@
 #define hash_mask     (bucket_count - 1)
 #define FNV1A_64_INIT 14695981039346656037ULL
 #define FNV_64_PRIME  1099511628211ULL
-#define TWO_63          9223372036854775808LL
+#define TWO_63        9223372036854775808LL
 
 typedef unsigned long long uint64;
-typedef long long int64;
 
 extern char* charmap[0x10000];
 
@@ -41,7 +40,7 @@ bucket* ht_lookup(htable* table, uint64 key)
     {
         bucket* b = &table->buckets[(hash_index + offset++) % bucket_count];
 
-        // Slot if free, assign and return it
+        // Slot is free, assign and return it
         if (!b->id)
         {
             b->id = key;
@@ -49,7 +48,7 @@ bucket* ht_lookup(htable* table, uint64 key)
             return b;
         }
 
-        // Slot if the right one, return it
+        // Slot is the right one, return it
         if (b->id == key)
         {
             return b;
@@ -69,9 +68,10 @@ uint64 fnv_internal(char* s, uint64 hash)
     return hash;
 }
 
-DLLEXP int64 fnv(char* s)
+DLLEXP uint64 fnv(char* s)
 {
-    return fnv_internal(s, FNV1A_64_INIT) - TWO_63;
+    //return fnv_internal(s, FNV1A_64_INIT) - TWO_63;
+    return fnv_internal(s, FNV1A_64_INIT);
 }
 
 DLLEXP int index(unsigned* utf32, unsigned len)
