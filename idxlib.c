@@ -74,9 +74,9 @@ DLLEXP uint64 fnv(char* s)
     return fnv_internal(s, FNV1A_64_INIT);
 }
 
-DLLEXP int index(unsigned* utf32, unsigned len)
+DLLEXP unsigned index(unsigned docid, unsigned* utf32, unsigned len)
 {
-    printf("idxlib: indexing string of length %u\n", len);
+    //printf("idxlib: indexing string of length %u\n", len);
 
     ht_init(&ht);
 
@@ -126,7 +126,34 @@ DLLEXP int index(unsigned* utf32, unsigned len)
     //  }
     //}
 
-    return 0;
+    return cur_idx;
+}
+
+unsigned current_bucket = 0;
+DLLEXP int index_iterator_init()
+{
+    current_bucket = 0;
+    return 1;
+}
+
+DLLEXP int index_iterator_next(uint64* oHash, unsigned* oCnt, unsigned* oAvgIdx)
+{
+    while (!ht.buckets[current_bucket].id && current_bucket < bucket_count)
+    {
+        ++current_bucket;
+    }
+
+    if (current_bucket >= bucket_count)
+    {
+        // We reached the end of the hashtable, return 0
+        return 0;
+    }
+
+    *oHash   = ht.buckets[current_bucket].id;
+    *oCnt    = ht.buckets[current_bucket].cnt;
+    *oAvgIdx = ht.buckets[current_bucket].tot_idx / *oCnt;
+    ++current_bucket;
+    return 1;
 }
 
 DLLEXP int test()

@@ -60,24 +60,46 @@ def index_(docid, text):
                  for w,cnts in words.iteritems())
     return words, i + 1
 
-def lib_index_(text):
+def lib_index_(docid, text):
     """
     Call library's implementation of index function.
     """
-    pass
+
+    # Call the library index function with the text encoded in UTF-32. The
+    # C library uses the unicode code point to index the charmap directly.
+    encoded_text = text.encode('utf-32')
+    total_word_cnt = lib.index(docid, encoded_text, len(encoded_text) / 4);
+
+    # Init the iterator, and create the required ctypes variables
+    lib.index_iterator_init()
+    word_hash = c_longlong()
+    word_cnt  = c_uint()
+    avg_idx   = c_uint()
+
+    # Loop on the iterator to retrieve all the results
+    words = dict()
+    while lib.index_iterator_next(byref(word_hash),
+                                  byref(word_cnt),
+                                  byref(avg_idx)):
+        words[word_hash.value] = varint.encode((docid,
+                                                word_cnt.value,
+                                                avg_idx.value))
+    return words, total_word_cnt
 
 try:
     # Load the C library
     lib = cdll.idxlib
-    lib.fnv.argtypes = [c_char_p]
-    lib.fnv.restype = c_longlong
+    lib.fnv.argtypes    = [c_char_p]
+    lib.fnv.restype     = c_longlong
+    lib.index.argytypes = [c_uint, POINTER(c_uint), c_uint]
+    lib.index.restype   = c_int
 
     # Set the public functions to point to the library
     fnv   = lib.fnv
-    #index = lib_index_
-    index = index_
-except:
+    index = lib_index_
+except Exception, ex:
     # Could not load the library, use Python implementation
+    print 'Could not load library:', ex
     fnv   = fnv_
     index = index_
 
@@ -101,30 +123,13 @@ def perf_test():
     elapsed_time = time.clock() - start_time
     print 'Python MD5 exec time: {} seconds'.format(elapsed_time)
 
+
 def main():
 
-    perf_test()
+    #print index(8, 'ceci est un test')
+    #return
+    #perf_test()
     return
-
-    os.system('make')
-
-    lib = cdll.idxlib
-    lib.fnv.argtypes = [c_char_p, POINTER(c_uint), POINTER(c_uint)]
-
-    #s = u"testéà"
-    #e = s.encode('utf-32')
-    #lib.index(e, len(e) / 4);
-    #s = u""
-    #e = s.encode('utf-32')
-    #lib.index(e, len(e) / 4);
-    #s = u"abc ceci testé abc"
-    #e = s.encode('utf-32')
-    #lib.index(e, len(e) / 4);
-
-    with open('testdata_donjuan.txt', 'r') as f:
-        s = f.read()
-    e = s.encode('utf-32')
-    lib.index(e, len(e) / 4);
 
 if __name__ == '__main__':
     main()
