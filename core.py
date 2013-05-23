@@ -16,7 +16,6 @@ Copyright (c) 2013, François Jeannotte.
 import collections
 import ctypes
 import datetime
-import hashlib
 import idxlib
 import itertools
 import logging
@@ -161,7 +160,7 @@ def get_word_hash(word):
     """
     Create a 64 bit hash for a given word.
     """
-    if len(word_hash_cache) > 1000000:
+    if len(word_hash_cache) > 500000:
         word_hash_cache.clear()
     word_hash = word_hash_cache.get(word, None)
     if word_hash == None:

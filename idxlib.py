@@ -7,14 +7,7 @@ import os
 import struct
 import time
 
-try:
-    lib = cdll.idxlib
-    lib.fnv.argtypes = [c_char_p]
-    lib.fnv.restype = c_longlong
-except:
-    lib = None
-
-def fnv(s):
+def fnv_python(s):
     """
     Compute the 64 bit FNV hash of a string. The hash is interpreted as a
     signed integer because SQLite uses signed integers for the ROWID (the hash
@@ -29,42 +22,48 @@ def fnv(s):
     returns values between -2**63 and 2**63-1 (the valid range for SQLite
     ROWID integers). However, the test vector data is unsigned.
     
-    >>> fnv('') + 2**63
+    >>> fnv_python('') + 2**63
     14695981039346656037L
-    >>> fnv('a') + 2**63
+    >>> fnv_python('a') + 2**63
     12638187200555641996L
-    >>> fnv('abcd') + 2**63
+    >>> fnv_python('abcd') + 2**63
     18165163011005162717L
-    >>> fnv('foobar') + 2**63
+    >>> fnv_python('foobar') + 2**63
     9625390261332436968L
-    >>> long(fnv('\xd5\x6b\xb9\x53\x42\x87\x08\x36')) + 2**63
+    >>> long(fnv_python('\xd5\x6b\xb9\x53\x42\x87\x08\x36')) + 2**63
     0L
     """
-    if lib:
-        return lib.fnv(s)
-    else:
-        h = 14695981039346656037L # 64 bit offset basis
-        for c in s:
-            h ^= ord(c)
-            h *= 1099511628211L # 64 bit FNV prime
-            h &= 0xFFFFFFFFFFFFFFFF
-        return h - 2**63 # To bring the number in the signed range; this
-                         # function must return a signed integer to be used as
-                         # a ROWID in SQLite.
+    h = 14695981039346656037L # 64 bit offset basis
+    for c in s:
+        h ^= ord(c)
+        h *= 1099511628211L # 64 bit FNV prime
+        h &= 0xFFFFFFFFFFFFFFFF
+    return h - 2**63 # To bring the number in the signed range; this
+                     # function must return a signed integer to be used as
+                     # a ROWID in SQLite.
+
+try:
+    # Load the C library
+    lib = cdll.idxlib
+    lib.fnv.argtypes = [c_char_p]
+    lib.fnv.restype = c_longlong
+
+    # Set the public fnv function to point to lib.fnv
+    fnv = lib.fnv
+except:
+    # Could not load the library, use Python implementation
+    fnv = fnv_python
 
 def perf_test():
-    global lib
-    lib = None
     start_time = time.clock()
     for i in range(100000):
-        fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
+        fnv_python('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
     elapsed_time = time.clock() - start_time
     print 'Python fnv exec time: {} seconds'.format(elapsed_time)
 
-    lib = cdll.idxlib
     start_time = time.clock()
     for i in range(100000):
-        fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
+        lib.fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
     elapsed_time = time.clock() - start_time
     print 'c fnv exec time     : {} seconds'.format(elapsed_time)
 
