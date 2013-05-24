@@ -81,8 +81,7 @@ Testing
 -------
 
 doctest is used for testing simple and low-level functions. The `test.py`
-script is used to run all tests. `idxlib_test.py` is used to test the optimized
-C library.
+script is used to run all tests.
 
 Todo
 ----
@@ -96,22 +95,6 @@ future.
 idxbeast provides a rudimentary web application (server.py) built on the Bottle
 web framework.  Some effort could be invested in making this web application
 more polished and feature rich.
-
-### Optimized C library
-
-Work on an experimental optimized C library called idxlib has been started. As
-is currently designed, idxbeast.py would call idxlib for each file to index.
-Before calling idxlib, idxbeast would read the whole file as unicode, and
-convert it to UTF-32. For each file, idxlib expects an array of unicode code
-points: 32 bit integers between 0 and 0xFFFF inclusive (assuming a Python
-narrow build).  idxlib will index each file, and store the accumulated results.
-When some criteria is met (e.g., number of files indexed larger than x), idxlib
-will flush the indexed documents to the SQLite database.
-
-### Web pages indexing
-
-Web pages indexing is not supported yet. This could be most useful for intranet
-or such networks that aren't indexed by Google.
 
 ### Microsoft Outlook contents indexing
 
@@ -142,35 +125,15 @@ flexibility in the way indexed documents are searched. For example,
   in the search string.
 * etc.
 
-### Testing
-
-For now testing is somewhat disorganised, and lacking in many respects. The
-following are elements that should be improved in the future:
-
-* Provide a test.py main entry point for running all tests, or a subset of the
-  tests.
-* Include in the source distribution some relatively small test documents that
-  can be indexed and for which expected results can be defined.
-* Choose a well known package containing many text files (e.g., a specific
-  version of the Boost source distribution) that can be used to gather
-  performance data.
-
-
 Acknowledgements
 ----------------
-
-* idxbeast uses the SQLite C amalgamation files for the idxlib optimized C
-  library. The two required files (sqlite3.c and sqlite3.h) are included in
-  the idxbeast source distribution.
 
 * idxbeast uses the Bottle Web Framework (http://bottlepy.org) to implement a
   basic web server. The bottle.py file is included in the idxbeast source
   distribution.
 
-* The Fowler-Noll-Vo hash (FNV) C implementation used by idxbeast comes almost
-  as is from the reference implementation on the FNV homepage:
-  http://www.isthe.com/chongo/tech/comp/fnv/. All needed files are included in
-  the idxbeast source distribution.
+* idxbeast uses the Fowler-Noll-Vo (FNV) hash:
+  http://www.isthe.com/chongo/tech/comp/fnv/.
 
 * The idxbeast image was adapted from
   http://commons.wikimedia.org/wiki/File:Chaos_Monster_and_Sun_God.png.
