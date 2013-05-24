@@ -444,6 +444,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
 
     # Connect to the DB
     conn = apsw.Connection(db_path)
+    cur  = conn.cursor()
 
     # Loop on the Queue until the None sentry is received
     finished = False
@@ -474,7 +475,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
 
         # Figure out which word_hash are present in the DB, and which are not
         dispatcher_shared_data.db_status = 'select ({})'.format(len(words))
-        wh_in_db = dict(conn.cursor().executemany('SELECT id, size FROM match WHERE id=?', ((wh,) for wh in words.iterkeys())))
+        wh_in_db = dict((i,size) for (i,size) in cur.execute('SELECT id,size FROM match') if i in words)
         wh_new   = set(words.keys()).difference(wh_in_db.keys())
 
         # Create the new tuples for new words
@@ -513,21 +514,21 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
 
             # Insert and update rows in the DB
             dispatcher_shared_data.db_status = 'insert matches ({})'.format(len(tuples_new))
-            conn.cursor().executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
+            cur.executemany("INSERT INTO match ('id', 'size', 'matches_blob') VALUES (?,?,?)", tuples_new)
             dispatcher_shared_data.db_status = 'update matches ({})'.format(len(tuples_upd))
-            conn.cursor().executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
+            cur.executemany('UPDATE match SET size=?, matches_blob=? WHERE id=?', tuples_upd)
             dispatcher_shared_data.db_status = 'update sizes ({})'.format(len(tuples_size))
-            conn.cursor().executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
+            cur.executemany('UPDATE match SET size=? WHERE id=?', tuples_size)
 
             # Delete outdated documents
             if len(doc_ids_to_delete) > 0:
                 dispatcher_shared_data.db_status = 'delete docs ({})'.format(len(doc_ids_to_delete))
-                conn.cursor().executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
+                cur.executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
 
             # Insert new/updated documents
             tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
             dispatcher_shared_data.db_status = 'insert docs ({})'.format(len(tuples))
-            conn.cursor().executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuples)
+            cur.executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuples)
 
             # Right before going out of the current scope, set the status to commit.
             # When the scope ends, the COMMIT will take place because of the context
