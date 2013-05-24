@@ -442,9 +442,11 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
     # Setup the logger for this process
     log.log_queue = log_q
 
-    # Connect to the DB
+    # Connect to the DB and setup connection for better performance
     conn = apsw.Connection(db_path)
     cur  = conn.cursor()
+    cur.execute('PRAGMA journal_mode=off')
+    cur.execute('PRAGMA synchronous=off')
 
     # Loop on the Queue until the None sentry is received
     finished = False
