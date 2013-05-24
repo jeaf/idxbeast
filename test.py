@@ -55,7 +55,7 @@ def test_search(expected_nb_results, conn, query):
     """
     nb_results, cur = core.search(conn, query, expected_nb_results, 0)
     assert_eq(expected_nb_results, nb_results)
-    for id, loc, relev, title in cur:
+    for id, type_, loc, relev, title in cur:
         break
     else:
         assert_fail('At least one result should be available')
