@@ -12,6 +12,7 @@ extern char* charmap[0x10000];
 
 typedef struct
 {
+    unsigned valid;
     uint64   id;
     unsigned cnt;
     unsigned tot_idx;
@@ -41,8 +42,9 @@ bucket* ht_lookup(htable* table, uint64 key)
         bucket* b = &table->buckets[(hash_index + offset++) % bucket_count];
 
         // Slot is free, assign and return it
-        if (!b->id)
+        if (!b->valid)
         {
+            b->valid = 1;
             b->id = key;
             table->size++;
             return b;
@@ -116,16 +118,6 @@ DLLEXP unsigned index(unsigned docid, unsigned* utf32, unsigned len)
         }
     }
 
-    // debug print info about words
-    //printf("Debug printout of hash table\n");
-    //for (unsigned k = 0; k < bucket_count; ++k)
-    //{
-    //  if (ht.buckets[k].id)
-    //  {
-    //    printf("id: %llx, cnt: %u, tot_idx: %u\n", ht.buckets[k].id, ht.buckets[k].cnt, ht.buckets[k].tot_idx);
-    //  }
-    //}
-
     return cur_idx;
 }
 
@@ -138,7 +130,7 @@ DLLEXP int index_iterator_init()
 
 DLLEXP int index_iterator_next(uint64* oHash, unsigned* oCnt, unsigned* oAvgIdx)
 {
-    while (!ht.buckets[current_bucket].id && current_bucket < bucket_count)
+    while (!ht.buckets[current_bucket].valid && current_bucket < bucket_count)
     {
         ++current_bucket;
     }
