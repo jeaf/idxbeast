@@ -37,7 +37,7 @@ bucket* ht_lookup(htable* table, uint64 key)
     unsigned hash_index = key & hash_mask;
     unsigned offset     = 0;
 
-    while (1)
+    while (offset < bucket_count)
     {
         bucket* b = &table->buckets[(hash_index + offset++) % bucket_count];
 
@@ -56,6 +56,9 @@ bucket* ht_lookup(htable* table, uint64 key)
             return b;
         }
     }
+
+    // The hashtable is full!
+    return 0;
 }
 
 // Algorithm and constants taken from
@@ -106,6 +109,11 @@ DLLEXP unsigned index(unsigned docid, unsigned* utf32, unsigned len)
         // Store info about current word
         //printf("key: %llx\n", key);
         bucket* b = ht_lookup(&ht, key);
+        if (!b)
+        {
+            // Hashtable is full, maximum number of unique words reached
+            break;
+        }
         b->cnt     += 1;
         b->tot_idx += cur_idx;
         cur_idx    += 1;
