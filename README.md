@@ -53,7 +53,7 @@ Compilation
 
 No compilation is required for basic idxbeast usage. However, an experimental
 idxlib.dll library can be compiled to provide faster text indexing
-capabilities. As of this writing, the library is incomplete and non-functional.
+capabilities.
 
 To compile idxlib.dll, simply run the make utility from inside a command prompt
 located into the idxbeast directory. idxbeast will automatically use the
