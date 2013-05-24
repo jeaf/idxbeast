@@ -14,6 +14,7 @@ import logging.handlers
 import multiprocessing
 import os.path as op
 import sys
+import urlparse
 
 import core
 import cui
@@ -30,14 +31,21 @@ def validate_logfile(f):
                                          'used as the log file.')
     return op.abspath(op.expanduser(f))
 
-def validate_src(dirname):
-    if not op.exists(dirname):
+def validate_src(src):
+
+    # First check if the src is a URL (only http is supported)
+    parse_result = urlparse.urlparse(src)
+    if parse_result.scheme == 'http':
+        return parse_result.geturl()
+
+    # If its not a URL, assume it is a directory
+    if not op.exists(src):
         raise argparse.ArgumentTypeError('The directory "{}" does not exist'
-                                         .format(dirname))
-    if not op.isdir(dirname):
+                                         .format(src))
+    if not op.isdir(src):
         raise argparse.ArgumentTypeError('"{}" exists, but is not a directory'
-                                         .format(dirname))
-    return op.abspath(op.expanduser(dirname))
+                                         .format(src))
+    return op.abspath(op.expanduser(src))
 
 def validate_nb_procs(nb_procs):
     try:
@@ -49,8 +57,7 @@ def validate_nb_procs(nb_procs):
         raise argparse.ArgumentTypeError('the number of processes must be '
                                          'between 0 and 16 inclusive, {} is '
                                          'invalid.'.format(val))
-    #return multiprocessing.cpu_count() if val == 0 else val
-    return multiprocessing.cpu_count()
+    return multiprocessing.cpu_count() if val == 0 else val
 
 def main():
 

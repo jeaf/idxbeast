@@ -21,7 +21,7 @@ def bottle_idxbeast():
             return 'Document not found'
     else:
         query_str = bottle.request.query.q
-        total, cursor = core.search(db_path, query_str, 20, 0)
+        total, cursor = core.search(apsw.Connection(db_path), query_str, 20, 0)
         return bottle.template('idxbeast', cursor=cursor)
 
 def run(_db_path):

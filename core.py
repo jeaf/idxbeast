@@ -27,6 +27,7 @@ import struct
 import threading
 import time
 import traceback
+import urllib2
 
 import apsw
 import unidecode
@@ -149,8 +150,9 @@ def create_tables(conn):
            to_             TEXT)''')
 
 # Constants
-doctype_file  = 1
-doctype_email = 2
+doctype_file    = 1
+doctype_email   = 2
+doctype_webpage = 3
 
 # Get the translation table from the charmap generator script
 translate_table = charmap_gen.create_translate_table()
@@ -273,6 +275,25 @@ def iteremails(folder_filter):
                 log.warning('Exception while processing Outlook folder, '
                               'exception: {}'.format(ex))
 
+class Webpage(Document):
+    def __init__(self, url):
+        self.type_      = doctype_webpage
+        self.locator    = url
+        self.mtime      = 0
+        self.title      = None
+        self.extension  = None
+        self.size       = 0
+        self.from_      = None
+        self.to_        = None
+    def __repr__(self):
+        return '<Webpage ' + ' ' + self.locator + '>'
+    def get_text(self):
+        page = urllib2.urlopen(self.locator)
+        return ''.join((self.locator, ' ', page.read()))
+
+def iterwebpages(url):
+    yield Webpage(url), None
+
 def search(db_conn, words, limit, offset):
     
     # Connect to the DB and create the necessary temporary memory tables
@@ -326,7 +347,7 @@ def search(db_conn, words, limit, offset):
         tot = 0
 
     # Return search results
-    return tot, cur.execute('''SELECT doc.id, doc.locator, SUM(search.relev), doc.title FROM doc
+    return tot, cur.execute('''SELECT doc.id, doc.type_, doc.locator, SUM(search.relev), doc.title FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?
                                ORDER BY SUM(search.relev) DESC
@@ -370,12 +391,15 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
         next_doc_id = max(next_doc_id, id)
     next_doc_id += 1
 
+    # Split the sources into dirs and web pages
+    srcs_dir     = [src for src in srcs if os.path.isdir(src)]
+    srcs_webpage = [src for src in srcs if not os.path.isdir(src)]
+
     # List all documents
-    chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir), exts) for rootdir in srcs)
+    chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir), exts) for rootdir in srcs_dir)
     #chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in srcs_email)
-    #chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in srcs_webpage)
-    #for doc, error in itertools.chain(chained_iterfiles, chained_iteremails, chained_webpages):
-    for doc, error in chained_iterfiles:
+    chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in srcs_webpage)
+    for doc, error in itertools.chain(chained_iterfiles, chained_webpages):
 
         dispatcher_shared_data.status = 'Listing documents'
         try:
@@ -431,7 +455,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
         doc_ids_to_delete = []
         try:
             while True and len(docs) < 10000:
-                doc = db_q.get(True, 0.25)
+                doc = db_q.get(True, 0.5)
                 if doc:
                     docs.append(doc)
                     if hasattr(doc, 'old_id'):

@@ -22,9 +22,13 @@
         </div>
         <hr />
         <div id=search_results>
-          % for id, locator, relev, title in cursor:
-            <p><a href="/idxbeast?d={{id}}">{{locator}}</a></p>
-          % end
+            % for id, type_, locator, relev, title in cursor:
+            %     if type_ == 3:
+                      <p><a href={{locator}}>{{locator}}</a><p>
+            %     else:
+                      <p><a href="/idxbeast?d={{id}}">{{locator}}</a></p>
+            %     end
+            % end
         </div>
     </body>
 </html>

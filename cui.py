@@ -48,9 +48,12 @@ class MenuDoc(object):
         if os.path.isfile(self.locator):
             subprocess.Popen(['notepad.exe', self.locator])
         else:
-            outlook = win32com.client.Dispatch('Outlook.Application')
-            mapi = outlook.GetNamespace('MAPI')
-            mapi.GetItemFromId(self.locator).Display()
+            # Assume web page, launch with default browser
+            os.startfile(self.locator)
+        #else:
+        #    outlook = win32com.client.Dispatch('Outlook.Application')
+        #    mapi = outlook.GetNamespace('MAPI')
+        #    mapi.GetItemFromId(self.locator).Display()
 
 def str_fill(s, length):
     """
@@ -335,7 +338,7 @@ def main(cmd, args):
         elapsed_time = time.clock() - start_time
         print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
         syncMenu = Menu()
-        for id, locator, relev, title in cur:
+        for id, type_, locator, relev, title in cur:
             disp_str = '[{}] {}'.format(relev, title if title else locator)
             syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
         if syncMenu.items:
@@ -367,7 +370,7 @@ def main(cmd, args):
         curpos = getcurpos()
         c_width = get_console_size()[0] - 10
         while dstat.status != 'Idle':
-            time.sleep(0.05)
+            time.sleep(0.2)
             setcurpos(curpos.x, curpos.y)
             print
             print '-'*c_width
