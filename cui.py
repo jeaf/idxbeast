@@ -381,13 +381,13 @@ def main(cmd, args):
             print 'DB status: {}'.format(str_fill(dstat.db_status, 40))
             print
             print '-'*c_width
-            header = ' {:^12} | {:^75} | {:^25}'.format('Progress', 'Document', 'Status')
+            header = ' {:^12} | {:^75}'.format('Progress', 'Document')
             print header
             print '-'*c_width
             for i in range(len(istat_array)):
                 dat = istat_array[i]
                 done_percentage = 0
-                print ' {:>12} | {:>75} | '.format(
+                print ' {:>12} | {:>75}'.format(
                 dat.doc_done_count, str_fill(dat.current_doc, 75)),
                 if dat.status == 'writing':
                     col = 'FOREGROUND_GREEN'
