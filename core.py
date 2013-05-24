@@ -470,6 +470,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
             pass
 
         # Merge the matches from all the documents
+        dispatcher_shared_data.db_status = 'merge words ({} docs)'.format(len(docs))
         words = collections.defaultdict(bytearray)
         for doc in docs:
             for wh, buf in doc.words.iteritems():
