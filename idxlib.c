@@ -21,6 +21,7 @@ typedef struct
 typedef struct
 {
     bucket buckets[bucket_count];
+    unsigned valid_buckets[bucket_count];
     unsigned size;
 } htable;
 
@@ -39,14 +40,15 @@ bucket* ht_lookup(htable* table, uint64 key)
 
     while (offset < bucket_count)
     {
-        bucket* b = &table->buckets[(hash_index + offset++) % bucket_count];
+        unsigned idx = (hash_index + offset++) % bucket_count;
+        bucket* b = &table->buckets[idx];
 
         // Slot is free, assign and return it
         if (!b->valid)
         {
             b->valid = 1;
             b->id = key;
-            table->size++;
+            table->valid_buckets[table->size++] = idx;
             return b;
         }
 
@@ -138,20 +140,16 @@ DLLEXP int index_iterator_init()
 
 DLLEXP int index_iterator_next(uint64* oHash, unsigned* oCnt, unsigned* oAvgIdx)
 {
-    while (!ht.buckets[current_bucket].valid && current_bucket < bucket_count)
+    // If the end has been reached, return 0
+    if (current_bucket >= ht.size)
     {
-        ++current_bucket;
-    }
-
-    if (current_bucket >= bucket_count)
-    {
-        // We reached the end of the hashtable, return 0
         return 0;
     }
 
-    *oHash   = ht.buckets[current_bucket].id;
-    *oCnt    = ht.buckets[current_bucket].cnt;
-    *oAvgIdx = ht.buckets[current_bucket].tot_idx / *oCnt;
+    // Return the current bucket
+    *oHash   = ht.buckets[ht.valid_buckets[current_bucket]].id;
+    *oCnt    = ht.buckets[ht.valid_buckets[current_bucket]].cnt;
+    *oAvgIdx = ht.buckets[ht.valid_buckets[current_bucket]].tot_idx / *oCnt;
     ++current_bucket;
     return 1;
 }
