@@ -17,26 +17,26 @@ installed on your system.
 
 ### Required
 
-* **Another Python SQLite Wrapper** <http://code.google.com/p/apsw/>
+* **Another Python SQLite Wrapper** (<http://code.google.com/p/apsw/>)
 
   Even though Python natively supports most SQLite features, some of the newer
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
   gives access to the entire SQLite API.
 
-* **Unidecode** ([https://pypi.python.org/pypi/Unidecode](https://pypi.python.org/pypi/Unidecode))
+* **Unidecode** (<https://pypi.python.org/pypi/Unidecode>)
 
   Unidecode converts unicode text to ASCII in a manner similar to what a human
   with a U.S. keyboard would do. This is used by idxbeast for "flattening"
   input texts, which allows for words with accents, for exemple, to map to the
   same word.
 
-* **pywin32** ([http://sourceforge.net/projects/pywin32](http://sourceforge.net/projects/pywin32))
+* **pywin32** (<http://sourceforge.net/projects/pywin32>)
 
   A very useful module for Windows-specific Python scripts. idxbeast uses it
   for COM communication with the Microsoft Outlook application. It is also
   used for implementing the console user interface.
 
-* **Beautiful Soup** ([http://www.crummy.com/software/BeautifulSoup/](http://www.crummy.com/software/BeautifulSoup/))
+* **Beautiful Soup** (<http://www.crummy.com/software/BeautifulSoup/>)
 
   Used to process HTML documents.
 
@@ -46,12 +46,12 @@ The following dependencies are required to build the idxlib.dll optimization
 C library. That library is optional, and as of this writing it is not completed
 nor functional.
 
-* **TCC** ([http://bellard.org/tcc/](http://bellard.org/tcc/))
+* **TCC** (<http://bellard.org/tcc/>)
 
   TCC means "Tiny C Compiler". This is the only tested compiler for the
   optional idxlib.dll C library.
 
-* **make for Windows** ([http://unxutils.sourceforge.net/](http://unxutils.sourceforge.net/))
+* **make for Windows** (<http://unxutils.sourceforge.net/>)
 
   A Makefile is provided for building the idxlib.dll library. The make utility
   can be found in the GNU utilities for Win32 package.
@@ -136,16 +136,16 @@ flexibility in the way indexed documents are searched. For example,
 Acknowledgements
 ----------------
 
-* idxbeast uses the Bottle Web Framework (http://bottlepy.org) to implement a
+* idxbeast uses the Bottle Web Framework (<http://bottlepy.org>) to implement a
   basic web server. The bottle.py file is included in the idxbeast source
   distribution.
 
 * idxbeast uses the Fowler-Noll-Vo (FNV) hash:
-  http://www.isthe.com/chongo/tech/comp/fnv/.
+  <http://www.isthe.com/chongo/tech/comp/fnv/>.
 
 * The idxbeast image was adapted from
-  http://commons.wikimedia.org/wiki/File:Chaos_Monster_and_Sun_God.png.
+  <http://commons.wikimedia.org/wiki/File:Chaos_Monster_and_Sun_God.png>.
 
 * The test data files were taken from Project Gutenberg
-  ([www.gutenberg.org](www.gutenberg.org)).
+  (<www.gutenberg.org>)
 
