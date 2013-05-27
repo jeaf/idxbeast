@@ -364,7 +364,9 @@ def main(cmd, args):
         print 'DB path : {}'.format(args.db)
         print 'Log file: {}'.format(args.logfile)
         start_time = time.clock()
-        dstat, istat_array = core.start_indexing(args.db, args.src, args.nbprocs, args.exts)
+        dstat, istat_array = core.start_indexing(args.db, args.src,
+                                                 args.nbprocs, args.exts,
+                                                 args.recurselinks)
 
         # Wait for indexing to complete, update status
         curpos = getcurpos()

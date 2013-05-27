@@ -32,6 +32,10 @@ installed on your system.
   for COM communication with the Microsoft Outlook application. It is also
   used for implementing the console user interface.
 
+* **Beautiful Soup** ([http://www.crummy.com/software/BeautifulSoup/](http://www.crummy.com/software/BeautifulSoup/))
+
+  Used to process HTML documents.
+
 ### Optional
 
 The following dependencies are required to build the idxlib.dll optimization

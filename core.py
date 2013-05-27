@@ -28,8 +28,10 @@ import threading
 import time
 import traceback
 import urllib2
+from   urlparse import urljoin
 
 import apsw
+import bs4
 import unidecode
 import win32com.client
 
@@ -276,23 +278,38 @@ def iteremails(folder_filter):
                               'exception: {}'.format(ex))
 
 class Webpage(Document):
-    def __init__(self, url):
+    def __init__(self, url, size, soup):
         self.type_      = doctype_webpage
         self.locator    = url
         self.mtime      = 0
-        self.title      = None
+        self.title      = soup.title.get_text()
         self.extension  = None
-        self.size       = 0
+        self.size       = size
         self.from_      = None
         self.to_        = None
+        self.soup       = soup
     def __repr__(self):
         return '<Webpage ' + ' ' + self.locator + '>'
     def get_text(self):
-        page = urllib2.urlopen(self.locator)
-        return ''.join((self.locator, ' ', page.read()))
+        return unicode(self.soup)
 
-def iterwebpages(url):
-    yield Webpage(url), None
+def iterwebpages(url, recurselinks):
+    """Yield web page documents, recursing through links if necessary."""
+
+    # Read and yield the root page
+    try:
+        s = urllib2.urlopen(url).read()
+        soup = bs4.BeautifulSoup(s)
+        yield Webpage(url, len(s), soup), None
+    except Exception, ex:
+        yield None, ex
+
+    # If we must recurse, loop through links
+    if recurselinks > 0:
+        for link in set(link.get('href') for link in soup.find_all('a')):
+            abs_url = urljoin(url, link)
+            for p, err in iterwebpages(abs_url, recurselinks - 1):
+                yield p, err
 
 def search(db_conn, words, limit, offset):
     
@@ -369,7 +386,8 @@ class DispatcherSharedData(ctypes.Structure):
                 ('db_status'       , ctypes.c_char*40 )]
 
 
-def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, srcs, exts, log_q):
+def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array,
+                    srcs, exts, recurselinks, log_q):
 
     # Setup the logger for this process
     log.log_queue = log_q
@@ -396,9 +414,12 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array, 
     srcs_webpage = [src for src in srcs if not os.path.isdir(src)]
 
     # List all documents
-    chained_iterfiles  = itertools.chain.from_iterable(iterfiles(unicode(rootdir), exts) for rootdir in srcs_dir)
-    #chained_iteremails = itertools.chain.from_iterable(iteremails(em_folder)       for em_folder in srcs_email)
-    chained_webpages   = itertools.chain.from_iterable(iterwebpages(webpage)       for webpage   in srcs_webpage)
+    chained_iterfiles  = itertools.chain.from_iterable(
+                         iterfiles(unicode(rootdir), exts)
+                         for rootdir in srcs_dir)
+    chained_webpages   = itertools.chain.from_iterable(
+                         iterwebpages(webpage, recurselinks)
+                         for webpage in srcs_webpage)
     for doc, error in itertools.chain(chained_iterfiles, chained_webpages):
 
         dispatcher_shared_data.status = 'Listing documents'
@@ -557,7 +578,7 @@ def indexer_proc(i, shared_data_array, index_q, db_q, log_q):
         shared_data_array[i].doc_done_count += 1
         db_q.put(doc)
 
-def start_indexing(db_path, srcs, nbprocs, exts):
+def start_indexing(db_path, srcs, nbprocs, exts, recurselinks):
 
     # Create tables
     with apsw.Connection(db_path) as conn:
@@ -571,7 +592,10 @@ def start_indexing(db_path, srcs, nbprocs, exts):
         dat.status = ''
 
     # Launch dispatcher process
-    disp = mp.Process(target=dispatcher_proc, args=(db_path, dstat, istat_array, srcs, exts, log.log_queue))
+    disp = mp.Process(target=dispatcher_proc, args=(db_path, dstat,
+                                                    istat_array, srcs, exts,
+                                                    recurselinks,
+                                                    log.log_queue))
     disp.start()
     return dstat, istat_array
 

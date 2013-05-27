@@ -59,6 +59,17 @@ def validate_nb_procs(nb_procs):
                                          'invalid.'.format(val))
     return multiprocessing.cpu_count() if val == 0 else val
 
+def validate_recurselinks(n):
+    try:
+        val = int(n)
+    except:
+        raise argparse.ArgumentTypeError('{} is not a valid integer'.format(n))
+    if val not in range(9):
+        raise argparse.ArgumentTypeError('the recursion level must be '
+                                         'between 0 and 8 inclusive, {} is '
+                                         'invalid.'.format(val))
+    return val
+
 def main():
 
     # Check the first argument for the command name
@@ -115,6 +126,12 @@ def main():
                                  'to consider for indexing. The default is a '
                                  'list of the most common text files (e.g., '
                                  'bat, cxx, xml, etc.)')
+        parser.add_argument('--recurselinks',
+                            default=validate_recurselinks(0),
+                            type=validate_recurselinks,
+                            help='The recurse level for HTML links. Must be '
+                                 'between 0 and 8 inclusive. The default is '
+                                 '0, meaning no recursion.')
 
     # Add search specific arguments
     elif cmd == 'search':
