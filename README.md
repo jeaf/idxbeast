@@ -17,7 +17,7 @@ installed on your system.
 
 ### Required
 
-* **Another Python SQLite Wrapper** ([http://code.google.com/p/apsw/](http://code.google.com/p/apsw/))
+* **Another Python SQLite Wrapper** <http://code.google.com/p/apsw/>
 
   Even though Python natively supports most SQLite features, some of the newer
   APIs are not supported, such as BLOB I/O (which is used by idxbeast).  APSW
