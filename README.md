@@ -1,4 +1,6 @@
-<div><img src="https://s3.amazonaws.com/jeaf/idxbeast/idxbeast_small.jpg"/></div>
+<div align="center">
+    <img src="https://s3.amazonaws.com/jeaf/idxbeast/idxbeast_small.jpg"/>
+</div>
 
 idxbeast - full text indexer
 ============================
