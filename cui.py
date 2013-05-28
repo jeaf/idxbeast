@@ -328,97 +328,91 @@ class Item(object):
         line = line + self.key + ') ' + self.text
         return line
 
+def do_search(args):
+    print 'Executing search...'
+    start_time = time.clock()
+    total, cur = core.search(apsw.Connection(args.db), ' '.join(args.word), 20, 0)
+    elapsed_time = time.clock() - start_time
+    print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
+    syncMenu = Menu()
+    for id, type_, locator, relev, title in cur:
+        disp_str = '[{}] {}'.format(relev, title if title else locator)
+        syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
+    if syncMenu.items:
+        res = syncMenu.show(sort=True)
+        if res:
+            selected_docs = []
+            print
+            for item in syncMenu.items:
+                if item.actions[0] == '*':
+                    selected_docs.append(item.obj)
+            for selected_doc in selected_docs:
+                selected_doc.activate()
+    else:
+        print 'No results found.'
+
+def do_index(args):
+
+    # Launch indexing
+    print 'Indexing sources:'
+    for i, src in enumerate(args.src):
+        print '{}: {}'.format(i + 1, src)
+    print 'DB path : {}'.format(args.db)
+    print 'Log file: {}'.format(args.logfile)
+    start_time = time.clock()
+    dstat, istat_array = core.start_indexing(args.db, args.src, args.nbprocs,
+                                             args.exts, args.recurselinks)
+
+    # Wait for indexing to complete, update status
+    curpos = getcurpos()
+    c_width = get_console_size()[0] - 10
+    while dstat.status != 'Idle':
+        time.sleep(0.2)
+        setcurpos(curpos.x, curpos.y)
+        print
+        print '-'*c_width
+        print 'status   : {}'.format(str_fill(dstat.status, c_width-18))
+        print str_fill('counts   : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
+        dstat.listed_count, dstat.uptodate_count, dstat.outdated_count, dstat.new_count), c_width-18)
+        print 'document : {}'.format(str_fill(dstat.current_doc, c_width-18))
+        print 'DB status: {}'.format(str_fill(dstat.db_status, 40))
+        print
+        print '-'*c_width
+        header = ' {:^12} | {:^75}'.format('Progress', 'Document')
+        print header
+        print '-'*c_width
+        for i in range(len(istat_array)):
+            dat = istat_array[i]
+            done_percentage = 0
+            print ' {:>12} | {:>75}'.format(
+            dat.doc_done_count, str_fill(dat.current_doc, 75)),
+            if dat.status == 'writing':
+                col = 'FOREGROUND_GREEN'
+            elif dat.status == 'locked':
+                col = 'FOREGROUND_RED'
+            else:
+                col = None
+            write_color(str_fill(dat.status, 25), col, endline=True)
+        print '-'*c_width
+
+    elapsed_time = time.clock() - start_time
+    print
+    print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
+
+def do_stats(args):
+    print 'Size of DB       : {}'.format(sizeof_fmt(os.path.getsize(args.db)))
+    with closing(apsw.Connection(args.db)) as conn:
+        cur = conn.cursor()
+        for cnt, in cur.execute('SELECT COUNT(*) FROM match;'):
+            print 'Unique words     : {}'.format(cnt)
+        for cnt, in cur.execute('SELECT COUNT(*) FROM doc;'):
+            print 'Indexed documents: {}'.format(cnt)
+
 def main(cmd, args):
 
-    # Check if search
-    if cmd == 'search':
-        print 'Executing search...'
-        start_time = time.clock()
-        total, cur = core.search(apsw.Connection(args.db), ' '.join(args.word), 20, 0)
-        elapsed_time = time.clock() - start_time
-        print '\n{} documents found in {}\n'.format(total, datetime.timedelta(seconds=elapsed_time))
-        syncMenu = Menu()
-        for id, type_, locator, relev, title in cur:
-            disp_str = '[{}] {}'.format(relev, title if title else locator)
-            syncMenu.addItem(Item(disp_str, toggle=True, actions=' *', obj=MenuDoc(locator, relev, title)))
-        if syncMenu.items:
-            res = syncMenu.show(sort=True)
-            if res:
-                selected_docs = []
-                print
-                for item in syncMenu.items:
-                    if item.actions[0] == '*':
-                        selected_docs.append(item.obj)
-                for selected_doc in selected_docs:
-                    selected_doc.activate()
-        else:
-            print 'No results found.'
-
-    # Run indexing
-    elif cmd == 'index':
-
-        # Launch indexing
-        print 'Indexing sources:'
-        for i, src in enumerate(args.src):
-            print '{}: {}'.format(i + 1, src)
-        print 'DB path : {}'.format(args.db)
-        print 'Log file: {}'.format(args.logfile)
-        start_time = time.clock()
-        dstat, istat_array = core.start_indexing(args.db, args.src,
-                                                 args.nbprocs, args.exts,
-                                                 args.recurselinks)
-
-        # Wait for indexing to complete, update status
-        curpos = getcurpos()
-        c_width = get_console_size()[0] - 10
-        while dstat.status != 'Idle':
-            time.sleep(0.2)
-            setcurpos(curpos.x, curpos.y)
-            print
-            print '-'*c_width
-            print 'status   : {}'.format(str_fill(dstat.status, c_width-18))
-            print str_fill('counts   : listed: {:<7}, up-to-date: {:<7}, outdated: {:<7}, new: {:<7}'.format(
-            dstat.listed_count, dstat.uptodate_count, dstat.outdated_count, dstat.new_count), c_width-18)
-            print 'document : {}'.format(str_fill(dstat.current_doc, c_width-18))
-            print 'DB status: {}'.format(str_fill(dstat.db_status, 40))
-            print
-            print '-'*c_width
-            header = ' {:^12} | {:^75}'.format('Progress', 'Document')
-            print header
-            print '-'*c_width
-            for i in range(len(istat_array)):
-                dat = istat_array[i]
-                done_percentage = 0
-                print ' {:>12} | {:>75}'.format(
-                dat.doc_done_count, str_fill(dat.current_doc, 75)),
-                if dat.status == 'writing':
-                    col = 'FOREGROUND_GREEN'
-                elif dat.status == 'locked':
-                    col = 'FOREGROUND_RED'
-                else:
-                    col = None
-                write_color(str_fill(dat.status, 25), col, endline=True)
-            print '-'*c_width
-
-        elapsed_time = time.clock() - start_time
-        print
-        print 'Indexing completed in {}.'.format(datetime.timedelta(seconds=elapsed_time))
-
-    # Launch server
-    elif cmd == 'server':
-        server.run(args.db)
-
-    # Display stats
-    elif cmd == 'stats':
-        print 'Size of DB       : {}'.format(sizeof_fmt(os.path.getsize(args.db)))
-        with closing(apsw.Connection(args.db)) as conn:
-            cur = conn.cursor()
-            for cnt, in cur.execute('SELECT COUNT(*) FROM match;'):
-                print 'Unique words     : {}'.format(cnt)
-            for cnt, in cur.execute('SELECT COUNT(*) FROM doc;'):
-                print 'Indexed documents: {}'.format(cnt)
-
-    # Unknown command, raise exception
-    else:
-        raise Exception('Unknown command: {}'.format(cmd))
+    if cmd == 'search':   do_search(args)
+    elif cmd == 'index':  do_index(args)
+    elif cmd == 'server': server.run(args.db)
+    elif cmd == 'stats':  do_stats(args)
+    else: raise Exception('Unknown command: {}'.format(cmd))
 
