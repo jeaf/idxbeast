@@ -326,7 +326,7 @@ def search(db_conn, words, limit, offset):
                 'id        INTEGER PRIMARY KEY,'
                 'word_hash INTEGER NOT NULL,'
                 'doc_id    INTEGER NOT NULL,'
-                'relev     INTEGER NOT NULL,'
+                'relev     REAL    NOT NULL,'
                 'count     INTEGER NOT NULL,'
                 'avg_idx   INTEGER NOT NULL)')
 
@@ -343,12 +343,14 @@ def search(db_conn, words, limit, offset):
                 # Append the values in the search_tuple. The values are:
                 # 1. The word hash
                 # 2. The doc ID
-                # 3. The relevance (for now it is the count, should be replaced
-                #    with a proper combination of count and average index.
+                # 3. The relevance
                 # 4. The count
                 # 5. The average index
-                search_tuples.append((word_hash, int_list[i], int_list[i+1],
-                                      int_list[i+1], int_list[i+2]))
+                search_tuples.append((word_hash,
+                                      int_list[i],
+                                      float(int_list[i+1]) / (int_list[i+2] + 1),
+                                      int_list[i+1],
+                                      int_list[i+2]))
     with db_conn:  
         cur.executemany('INSERT INTO search(word_hash, doc_id, relev, count, avg_idx) VALUES (?,?,?,?,?)', search_tuples)
 
