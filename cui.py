@@ -328,7 +328,15 @@ class Item(object):
         line = line + self.key + ') ' + self.text
         return line
 
+# The height of the interactive search console UI, not including the result
+# rows.
+search_cui_height = 14
+
 def upd_search_display(conn, width, res_limit, search_str, sel_index):
+
+    # The rows are selectable with the A-Z chars, this limits the maximum
+    # number of rows to 26
+    assert res_limit > 0 and res_limit <= 26
 
     # Print the search query
     search_str_prefix = 'query: '
@@ -341,42 +349,39 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index):
         start_time = time.clock()
         tot, cur = core.search(conn, search_str, res_limit, 0)
         elapsed = time.clock() - start_time
-        print str_fill('{} results ({} seconds)'.format(tot, elapsed), width)
+        print str_fill('{} results ({:.6f} seconds)'.format(tot, elapsed), width)
     else:
         cur = tuple()
-        print ' '*width
+        print str_fill('No results', width)
     print
 
     # Print the results table header
     print width*'-'
-    print '     | relev. | freq. | avg. idx. | document'
+    print '      | relev. |  freq.  | avg. idx. | document'
     print width*'-'
 
     # Fill the results table
-    lines_to_wipe = res_limit
+    row_count = 0
     for relev, freq, avg_idx, id, type_, locator, title in cur:
-        fmt_doc = str_fill(locator, width - 30)
-        print '{} | {} | {} | {}'.format(relev, freq, avg_idx, fmt_doc)
-        lines_to_wipe -= 1
-    for _ in range(lines_to_wipe): print ' '*width
+        selection_str = '*' if row_count == sel_index else ' '
+        print ' {}[{}] | {:.4f} | {:>7} | {:>9} | {}'.format(
+              chr(ord('A') + row_count), selection_str, relev, int(freq),
+              int(avg_idx), str_fill(locator, width - 39))
+        row_count += 1
+    for _ in range(res_limit - row_count): print ' '*width
     print width*'-'
-
-    # Print the page count
-    print 'page {} of {}'.format('x', 'x')
     print
 
-    # Print the sort parameters
-    print 'sort by  : {}'.format('n/a')
-    print 'sort dir.: {}'.format('n/a')
-    print
-
-    # Print the help
-    print '(PgUp/PgDn) change page  (F1) change sort dir. ',
-    print '(F2) change sort by  (ESC) Exit'
+    # Print the help and current parameters
+    print 'PgUp/PgDn  Page             : {} of {}'.format(0, 0)
+    print 'F1         Sort direction   : {}'.format('n/a')
+    print 'F2         Sort by          : {}'.format('n/a')
+    print 'F3         Open with notepad'
+    print 'F4         Copy to clipboard'
 
     # Return the cursor to the first line, right after the search string
     setcurpos(len(search_str_prefix) + len(search_str), getcurpos().y -
-              res_limit - 14)
+              res_limit - search_cui_height)
   
 def do_search(args):
     """Launch the interactive search console UI."""
@@ -412,7 +417,7 @@ def do_search(args):
           sel_index = 0
 
     # Return the cursor to its original position
-    setcurpos(0, getcurpos().y + res_limit + 3)
+    setcurpos(0, getcurpos().y + res_limit + search_cui_height)
 
 def do_search_old(args):
     print 'Executing search...'
