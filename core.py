@@ -364,7 +364,9 @@ def search(db_conn, words, limit, offset):
         tot = 0
 
     # Return search results
-    return tot, cur.execute('''SELECT doc.id, doc.type_, doc.locator, SUM(search.relev), doc.title FROM doc
+    return tot, cur.execute('''SELECT AVG(search.relev), AVG(search.count),
+                                      AVG(search.avg_idx), doc.id, doc.type_,
+                                      doc.locator, doc.title FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?
                                ORDER BY SUM(search.relev) DESC

@@ -22,7 +22,7 @@
         </div>
         <hr />
         <div id=search_results>
-            % for id, type_, locator, relev, title in cursor:
+            % for relev, freq, avg_idx, id, type_, locator, title in cursor:
             %     if type_ == 3:
                       <p><a href={{locator}}>{{locator}}</a><p>
             %     else:

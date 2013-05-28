@@ -55,7 +55,7 @@ def test_search(expected_nb_results, conn, query):
     """
     nb_results, cur = core.search(conn, query, expected_nb_results, 0)
     assert_eq(expected_nb_results, nb_results)
-    for id, type_, loc, relev, title in cur:
+    for relev, freq, avg_idx, id, type_, loc, title in cur:
         break
     else:
         assert_fail('At least one result should be available')
@@ -78,7 +78,7 @@ def testdata():
         # Run indexing, and time its execution
         start_time = time.clock()
         dstat, istat_array  = core.start_indexing(db_path, [testdata_dir],
-                                                  1, 'txt')
+                                                  1, 'txt', 0)
         while dstat.status != 'Idle':
             time.sleep(0.01)
         elapsed_time = time.clock() - start_time
