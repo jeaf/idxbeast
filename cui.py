@@ -328,7 +328,93 @@ class Item(object):
         line = line + self.key + ') ' + self.text
         return line
 
+def upd_search_display(conn, width, res_limit, search_str, sel_index):
+
+    # Print the search query
+    search_str_prefix = 'query: '
+    setcurpos(0, getcurpos().y)
+    print '{}{}'.format(search_str_prefix, str_fill(search_str, width - len(search_str_prefix)))
+    print
+
+    # Execute the search and display the number of results, search time
+    if len(search_str) > 1:
+        start_time = time.clock()
+        tot, cur = core.search(conn, search_str, res_limit, 0)
+        elapsed = time.clock() - start_time
+        print str_fill('{} results ({} seconds)'.format(tot, elapsed), width)
+    else:
+        cur = tuple()
+        print ' '*width
+    print
+
+    # Print the results table header
+    print width*'-'
+    print '     | relev. | freq. | avg. idx. | document'
+    print width*'-'
+
+    # Fill the results table
+    lines_to_wipe = res_limit
+    for relev, freq, avg_idx, id, type_, locator, title in cur:
+        fmt_doc = str_fill(locator, width - 30)
+        print '{} | {} | {} | {}'.format(relev, freq, avg_idx, fmt_doc)
+        lines_to_wipe -= 1
+    for _ in range(lines_to_wipe): print ' '*width
+    print width*'-'
+
+    # Print the page count
+    print 'page {} of {}'.format('x', 'x')
+    print
+
+    # Print the sort parameters
+    print 'sort by  : {}'.format('n/a')
+    print 'sort dir.: {}'.format('n/a')
+    print
+
+    # Print the help
+    print '(PgUp/PgDn) change page  (F1) change sort dir. ',
+    print '(F2) change sort by  (ESC) Exit'
+
+    # Return the cursor to the first line, right after the search string
+    setcurpos(len(search_str_prefix) + len(search_str), getcurpos().y -
+              res_limit - 14)
+  
 def do_search(args):
+    """Launch the interactive search console UI."""
+
+    # Connect to the DB
+    conn = apsw.Connection(args.db)
+
+    # Setup initial parameters. The search string is now empty, but could also
+    # eventually be initialized from the arguments.
+    search_str = ''
+    sel_index = 0
+    init_line = getcurpos().y
+    res_limit = 5
+    width = 80
+
+    # Process user input and update display
+    while True:
+        upd_search_display(conn, width, res_limit, search_str, sel_index) 
+        k = wait_key()
+
+        if ord(k) == 8: # BACKSPACE, erase last char
+          search_str = search_str[:-1]
+        elif ord(k) == 27: # ESC, quit
+          break
+        elif ord(k) == 224: # Control key
+          other_k = wait_key()
+          if ord(other_k) == 72: # Up arrow
+            if sel_index > 0: sel_index -= 1
+          elif ord(other_k) == 80: # Down arrow
+            if sel_index < len(matches) - 1: sel_index += 1
+        else:
+          search_str += k
+          sel_index = 0
+
+    # Return the cursor to its original position
+    setcurpos(0, getcurpos().y + res_limit + 3)
+
+def do_search_old(args):
     print 'Executing search...'
     start_time = time.clock()
     total, cur = core.search(apsw.Connection(args.db), ' '.join(args.word), 20, 0)
