@@ -357,14 +357,14 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index):
 
     # Print the results table header
     print width*'-'
-    print '      | relev. |  freq.  | avg. idx. | document'
+    print '      | relev | freq | avgidx | document'
     print width*'-'
 
     # Fill the results table
     row_count = 0
     for relev, freq, avg_idx, id, type_, locator, title in cur:
         selection_str = '*' if row_count == sel_index else ' '
-        print ' {}[{}] | {:.4f} | {:>7} | {:>9} | {}'.format(
+        print ' {}[{}] | {:.3f} | {:>4} | {:>6} | {}'.format(
               chr(ord('A') + row_count), selection_str, relev, int(freq),
               int(avg_idx), str_fill(locator, width - 39))
         row_count += 1

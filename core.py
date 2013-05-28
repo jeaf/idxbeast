@@ -348,7 +348,7 @@ def search(db_conn, words, limit, offset):
                 # 5. The average index
                 search_tuples.append((word_hash,
                                       int_list[i],
-                                      float(int_list[i+1]) / (int_list[i+2] + 1),
+                                      float(int_list[i+1]) * 10.0 / (int_list[i+2] + 1),
                                       int_list[i+1],
                                       int_list[i+2]))
     with db_conn:  
