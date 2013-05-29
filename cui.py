@@ -408,7 +408,7 @@ def do_search(args):
 
     # Setup initial parameters. The search string is now empty, but could also
     # eventually be initialized from the arguments.
-    search_str = ''
+    search_str = ' '.join(args.word)
     sel_index  = 0
     sel_page   = 0
     orderby    = 'relev'

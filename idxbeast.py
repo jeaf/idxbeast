@@ -135,7 +135,7 @@ def main():
 
     # Add search specific arguments
     elif cmd == 'search':
-        parser.add_argument('word', nargs='+',
+        parser.add_argument('word', nargs='*',
                             help='One or more words to search for')
 
     # Parse args
