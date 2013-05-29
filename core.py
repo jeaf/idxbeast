@@ -311,7 +311,16 @@ def iterwebpages(url, recurselinks):
             for p, err in iterwebpages(abs_url, recurselinks - 1):
                 yield p, err
 
-def search(db_conn, words, limit, offset):
+def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
+    """
+    Executes a search. orderby can be:
+        - relev
+        - freq
+        - avgidx
+    orderdir can be:
+        - asc
+        - desc
+    """
     
     # Connect to the DB and create the necessary temporary memory tables
     cur = db_conn.cursor()
@@ -327,8 +336,8 @@ def search(db_conn, words, limit, offset):
                 'word_hash INTEGER NOT NULL,'
                 'doc_id    INTEGER NOT NULL,'
                 'relev     REAL    NOT NULL,'
-                'count     INTEGER NOT NULL,'
-                'avg_idx   INTEGER NOT NULL)')
+                'freq      INTEGER NOT NULL,'
+                'avgidx    INTEGER NOT NULL)')
 
     # Get all the matches blobs from the DB and expand them into the temporary search table
     search_tuples = []
@@ -338,13 +347,13 @@ def search(db_conn, words, limit, offset):
             buf = bytearray(size)
             blob.readinto(buf, 0, size)
             int_list = varint.decode(buf)
-            assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avg_idx'
+            assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avgidx'
             for i in range(0, len(int_list), 3):
                 # Append the values in the search_tuple. The values are:
                 # 1. The word hash
                 # 2. The doc ID
                 # 3. The relevance
-                # 4. The count
+                # 4. The frequency 
                 # 5. The average index
                 search_tuples.append((word_hash,
                                       int_list[i],
@@ -352,7 +361,7 @@ def search(db_conn, words, limit, offset):
                                       int_list[i+1],
                                       int_list[i+2]))
     with db_conn:  
-        cur.executemany('INSERT INTO search(word_hash, doc_id, relev, count, avg_idx) VALUES (?,?,?,?,?)', search_tuples)
+        cur.executemany('INSERT INTO search(word_hash, doc_id, relev, freq, avgidx) VALUES (?,?,?,?,?)', search_tuples)
 
     # Figure out the total number of results
     for tot, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
@@ -366,13 +375,14 @@ def search(db_conn, words, limit, offset):
         tot = 0
 
     # Return search results
-    return tot, cur.execute('''SELECT AVG(search.relev), AVG(search.count),
-                                      AVG(search.avg_idx), doc.id, doc.type_,
+    return tot, cur.execute('''SELECT AVG(search.relev), AVG(search.freq),
+                                      AVG(search.avgidx), doc.id, doc.type_,
                                       doc.locator, doc.title FROM doc
                                INNER JOIN search ON main.doc.id = search.doc_id
                                GROUP BY main.doc.id HAVING COUNT(1) = ?
-                               ORDER BY SUM(search.relev) DESC
-                               LIMIT ? OFFSET ?''', (len(query_word_hashes), limit, offset))
+                               ORDER BY AVG(search.{}) {}
+                               LIMIT ? OFFSET ?'''.format(orderby, orderdir),
+                               (len(query_word_hashes), limit, offset))
 
 class IndexerSharedData(ctypes.Structure):
     _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing

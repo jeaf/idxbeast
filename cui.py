@@ -12,6 +12,7 @@ import apsw
 from   contextlib import closing
 import ctypes
 import datetime
+import math
 import msvcrt
 import os
 import os.path
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import time
 
+import win32clipboard
 import win32com
 import win32console
 
@@ -330,9 +332,10 @@ class Item(object):
 
 # The height of the interactive search console UI, not including the result
 # rows.
-search_cui_height = 14
+search_cui_height = 17
 
-def upd_search_display(conn, width, res_limit, search_str, sel_index):
+def upd_search_display(conn, width, res_limit, search_str, sel_index,
+                       sel_page, orderby, orderdir):
 
     # The rows are selectable with the A-Z chars, this limits the maximum
     # number of rows to 26
@@ -347,41 +350,55 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index):
     # Execute the search and display the number of results, search time
     if len(search_str) > 1:
         start_time = time.clock()
-        tot, cur = core.search(conn, search_str, res_limit, 0)
+        tot, cur = core.search(conn, search_str, res_limit, sel_page*res_limit,
+                               orderby, orderdir)
         elapsed = time.clock() - start_time
+        page_cnt = int(math.ceil(float(tot) / res_limit))
         print str_fill('{} results ({:.6f} seconds)'.format(tot, elapsed), width)
     else:
         cur = tuple()
+        page_cnt = 0
         print str_fill('No results', width)
     print
 
     # Print the results table header
     print width*'-'
-    print '      | relev | freq | avgidx | document'
+    print '      | relev |  freq | avgidx | document'
     print width*'-'
 
     # Fill the results table
     row_count = 0
-    for relev, freq, avg_idx, id, type_, locator, title in cur:
-        selection_str = '*' if row_count == sel_index else ' '
-        print ' {}[{}] | {:.3f} | {:>4} | {:>6} | {}'.format(
+    sel_loc = ''
+    for relev, freq, avgidx, id, type_, locator, title in cur:
+        if row_count == sel_index:
+            selection_str = '*'
+            sel_loc = locator
+        else:
+            selection_str = ' '
+        print ' {}[{}] | {:.3f} | {:>5} | {:>6} | {}'.format(
               chr(ord('A') + row_count), selection_str, relev, int(freq),
-              int(avg_idx), str_fill(locator, width - 39))
+              int(avgidx), str_fill(locator, width - 33))
         row_count += 1
     for _ in range(res_limit - row_count): print ' '*width
     print width*'-'
     print
 
     # Print the help and current parameters
-    print 'PgUp/PgDn  Page             : {} of {}'.format(0, 0)
-    print 'F1         Sort direction   : {}'.format('n/a')
-    print 'F2         Sort by          : {}'.format('n/a')
+    page_fmt = '{} of {}'.format(sel_page + 1, page_cnt) if page_cnt else ''
+    print 'PgUp/PgDn  Page             : {}'.format(str_fill(page_fmt, width))
+    print 'F1         Order by         : {}'.format(str_fill(orderby, width))
+    print 'F2         Order direction  : {}'.format(str_fill(orderdir, width))
+    print
     print 'F3         Open with notepad'
-    print 'F4         Copy to clipboard'
+    print 'F4         Open with default application'
+    print 'F5         Copy locator to clipboard'
+    print 'ESC        Quit'
 
     # Return the cursor to the first line, right after the search string
     setcurpos(len(search_str_prefix) + len(search_str), getcurpos().y -
               res_limit - search_cui_height)
+
+    return row_count, page_cnt, sel_loc
   
 def do_search(args):
     """Launch the interactive search console UI."""
@@ -392,29 +409,65 @@ def do_search(args):
     # Setup initial parameters. The search string is now empty, but could also
     # eventually be initialized from the arguments.
     search_str = ''
-    sel_index = 0
-    init_line = getcurpos().y
-    res_limit = 5
-    width = 80
+    sel_index  = 0
+    sel_page   = 0
+    orderby    = 'relev'
+    orderdir   = 'desc'
+    init_line  = getcurpos().y
+    res_limit  = 5
+    width      = 80
 
     # Process user input and update display
     while True:
-        upd_search_display(conn, width, res_limit, search_str, sel_index) 
+        row_count, page_count, sel_loc = upd_search_display(conn,
+                                                            width,
+                                                            res_limit,
+                                                            search_str,
+                                                            sel_index,
+                                                            sel_page,
+                                                            orderby,
+                                                            orderdir) 
         k = wait_key()
-
         if ord(k) == 8: # BACKSPACE, erase last char
-          search_str = search_str[:-1]
+            search_str = search_str[:-1]
         elif ord(k) == 27: # ESC, quit
-          break
+            break
         elif ord(k) == 224: # Control key
-          other_k = wait_key()
-          if ord(other_k) == 72: # Up arrow
-            if sel_index > 0: sel_index -= 1
-          elif ord(other_k) == 80: # Down arrow
-            if sel_index < len(matches) - 1: sel_index += 1
-        else:
-          search_str += k
-          sel_index = 0
+            other_k = wait_key()
+            if ord(other_k) == 72: # Up arrow
+                if sel_index > 0: sel_index -= 1
+            elif ord(other_k) == 80: # Down arrow
+                if sel_index < row_count-1: sel_index += 1
+            elif ord(other_k) == 73: # Page up
+                if sel_page > 0: sel_page -= 1
+            elif ord(other_k) == 81: # Page down
+                if sel_page < page_count-1: sel_page += 1
+            else:
+                print ord(other_k)
+        elif ord(k) == 0: # F key (e.g., F1, F2, etc.)
+            other_k = wait_key()
+            if ord(other_k) == 59: # F1
+                if orderby == 'relev': orderby = 'freq'
+                elif orderby == 'freq': orderby = 'avgidx'
+                else: orderby = 'relev'
+            elif ord(other_k) == 60: # F2
+                if orderdir == 'asc': orderdir = 'desc'
+                else: orderdir = 'asc'
+            elif sel_loc and ord(other_k) == 61: # F3
+                subprocess.Popen(['notepad.exe', sel_loc])
+            elif sel_loc and ord(other_k) == 62: # F4
+                os.startfile(sel_loc)
+            elif sel_loc and ord(other_k) == 63: # F5
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardText(sel_loc)
+                win32clipboard.CloseClipboard()
+        elif (ord(k) >= 48 and ord(k) <= 57) or (ord(k) >= 97 and ord(k) <= 122) or ord(k) == 32 or ord(k) == 95:
+            search_str += k
+            sel_index = 0
+            sel_page  = 0
+        elif ord(k) >= 65 and ord(k) <= (64 + row_count):
+            sel_index = ord(k) - 65
 
     # Return the cursor to its original position
     setcurpos(0, getcurpos().y + res_limit + search_cui_height)
