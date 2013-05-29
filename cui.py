@@ -276,8 +276,6 @@ def do_search(args):
                 if sel_page > 0: sel_page -= 1
             elif ord(other_k) == 81: # Page down
                 if sel_page < page_count-1: sel_page += 1
-            else:
-                print ord(other_k)
         elif ord(k) == 0: # F key (e.g., F1, F2, etc.)
             other_k = wait_key()
             if ord(other_k) == 59: # F1
