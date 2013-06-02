@@ -78,6 +78,11 @@ class MultiprocessingLogger(object):
             t.start()
         self.log_obj.addHandler(handler)
 
+    def debug(self, msg):
+        """Log a debug message."""
+        if self.log_queue != None:
+            self.log_queue.put((logging.DEBUG, msg))
+
     def info(self, msg):
         """Log a warning message."""
         if self.log_queue != None:
@@ -324,20 +329,19 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     
     # Connect to the DB and create the necessary temporary memory tables
     cur = db_conn.cursor()
-    try:
-        cur.execute("DETACH search_db") # If the same connection is reused for
-                                        # more than one search, we must clear
-                                        # the search_db attached memory DB.
-    except apsw.SQLError:
-        pass # If search_db does not exist, an exception is thrown; ignore it.
-    cur.execute("ATTACH ':memory:' AS search_db")
-    cur.execute('CREATE TABLE search_db.search('
-                'id        INTEGER PRIMARY KEY,'
-                'word_hash INTEGER NOT NULL,'
-                'doc_id    INTEGER NOT NULL,'
-                'relev     REAL    NOT NULL,'
-                'freq      INTEGER NOT NULL,'
-                'avgidx    INTEGER NOT NULL)')
+    for i, _ in enumerate(cur.execute('PRAGMA database_list')):
+        if i:
+            cur.execute('DELETE FROM search')
+            break
+    else:
+        cur.execute("ATTACH ':memory:' AS search_db")
+        cur.execute('CREATE TABLE search_db.search('
+                    'id        INTEGER PRIMARY KEY,'
+                    'word_hash INTEGER NOT NULL,'
+                    'doc_id    INTEGER NOT NULL,'
+                    'relev     REAL    NOT NULL,'
+                    'freq      INTEGER NOT NULL,'
+                    'avgidx    INTEGER NOT NULL)')
 
     # Get all the matches blobs from the DB and expand them into the temporary search table
     search_tuples = []
