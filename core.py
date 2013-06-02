@@ -20,6 +20,7 @@ import idxlib
 import itertools
 import logging
 import multiprocessing as mp
+import operator
 import os.path
 import Queue
 import string
@@ -316,6 +317,10 @@ def iterwebpages(url, recurselinks):
             for p, err in iterwebpages(abs_url, recurselinks - 1):
                 yield p, err
 
+matches_cache = dict()
+orderby_map   = {'relev': 1, 'freq': 2, 'avgidx': 3}
+orderdir_map  = {'desc': True, 'asc': False}
+
 def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     """
     Executes a search. orderby can be:
@@ -326,67 +331,64 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
         - asc
         - desc
     """
-    
-    # Connect to the DB and create the necessary temporary memory tables
+
+    log.debug('Starting search...')
     cur = db_conn.cursor()
-    for i, _ in enumerate(cur.execute('PRAGMA database_list')):
-        if i:
-            cur.execute('DELETE FROM search')
-            break
-    else:
-        cur.execute("ATTACH ':memory:' AS search_db")
-        cur.execute('CREATE TABLE search_db.search('
-                    'id        INTEGER PRIMARY KEY,'
-                    'word_hash INTEGER NOT NULL,'
-                    'doc_id    INTEGER NOT NULL,'
-                    'relev     REAL    NOT NULL,'
-                    'freq      INTEGER NOT NULL,'
-                    'avgidx    INTEGER NOT NULL)')
 
-    # Get all the matches blobs from the DB and expand them into the temporary search table
+    # Decode the matches that correspond to the query
+    start = time.clock()
+    doc_id_sets = []
+    match_dicts = []
+    query_word_hashes = [get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()]
+    for wh in query_word_hashes:
+        if wh not in matches_cache:
+            doc_id_set = set()
+            matches = dict()
+            for size, in cur.execute('SELECT size FROM match WHERE id=?', (wh,)):
+                with db_conn.blobopen('main', 'match', 'matches_blob', wh, False) as blob:
+                    buf = bytearray(size)
+                    blob.readinto(buf, 0, size)
+                    int_list = varint.decode(buf)
+                    assert len(int_list) % 3 == 0, 'int_list should contain n groups of docid,cnt,avgidx'
+                    doc_id_set = set()
+                    matches = dict()
+                    for i in range(0, len(int_list), 3):
+                        doc_id_set.add(int_list[i])
+                        matches[int_list[i]] = (int_list[i+1], int_list[i+2])
+            matches_cache[wh] = doc_id_set, matches
+        else:
+            doc_id_set, matches = matches_cache[wh]
+        doc_id_sets.append(doc_id_set)
+        match_dicts.append(matches)
+    log.debug('Matches dec: {:f} s'.format(time.clock() - start))
+
+    # Compute the intersection between matches set, and insert into search
+    start = time.clock()
+    match_ids = reduce(set.intersection, doc_id_sets)
+    log.debug('Reduce     : {:f} s'.format(time.clock() - start))
+    start = time.clock()
     search_tuples = []
-    query_word_hashes = [(get_word_hash(w),) for w in unidecode.unidecode(words).translate(translate_table).split()]
-    for size,word_hash in cur.executemany('SELECT size,id FROM match WHERE id=?', query_word_hashes):
-        with db_conn.blobopen('main', 'match', 'matches_blob', word_hash, False) as blob:
-            buf = bytearray(size)
-            blob.readinto(buf, 0, size)
-            int_list = varint.decode(buf)
-            assert len(int_list) % 3 == 0, 'int_list should contain n groups of doc_id,cnt,avgidx'
-            for i in range(0, len(int_list), 3):
-                # Append the values in the search_tuple. The values are:
-                # 1. The word hash
-                # 2. The doc ID
-                # 3. The relevance
-                # 4. The frequency 
-                # 5. The average index
-                search_tuples.append((word_hash,
-                                      int_list[i],
-                                      float(int_list[i+1]) * 10.0 / (int_list[i+2] + 1),
-                                      int_list[i+1],
-                                      int_list[i+2]))
-    with db_conn:  
-        cur.executemany('INSERT INTO search(word_hash, doc_id, relev, freq, avgidx) VALUES (?,?,?,?,?)', search_tuples)
-
-    # Figure out the total number of results
-    for tot, in cur.execute('''SELECT COUNT(1) FROM (SELECT 1 FROM doc
-                                                     INNER JOIN search ON
-                                                     main.doc.id = search.doc_id
-                                                     GROUP BY main.doc.id
-                                                     HAVING COUNT(1) = ?)''',
-                                                     (len(query_word_hashes),)):
-        break
-    else:
-        tot = 0
+    for docid in match_ids:
+        freq   = 0
+        avgidx = 0
+        for i, m in enumerate(match_dicts):
+            f, a    = m[docid]
+            freq   += f
+            avgidx += a
+        freq   = freq / (i + 1)
+        avgidx = avgidx / (i + 1)
+        search_tuples.append((docid, freq * 10.0 / (avgidx + 1), freq, avgidx))
+    log.debug('docid loop : {:f} s'.format(time.clock() - start))
 
     # Return search results
-    return tot, cur.execute('''SELECT AVG(search.relev), AVG(search.freq),
-                                      AVG(search.avgidx), doc.id, doc.type_,
-                                      doc.locator, doc.title FROM doc
-                               INNER JOIN search ON main.doc.id = search.doc_id
-                               GROUP BY main.doc.id HAVING COUNT(1) = ?
-                               ORDER BY AVG(search.{}) {}
-                               LIMIT ? OFFSET ?'''.format(orderby, orderdir),
-                               (len(query_word_hashes), limit, offset))
+    start = time.clock()
+    search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
+                       reverse=orderdir_map[orderdir])
+    result_docids = search_tuples[offset: offset + limit]
+    c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
+                        ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
+    log.debug('Select ids : {:f} s'.format(time.clock() - start))
+    return len(match_ids), c
 
 class IndexerSharedData(ctypes.Structure):
     _fields_ = [('status'        , ctypes.c_char*40 ), # e.g., idle, locked, writing
