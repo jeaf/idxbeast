@@ -369,9 +369,8 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     log.debug('Reduce     : {:f} s'.format(time.clock() - start))
     start = time.clock()
     search_tuples = []
-    for docid in match_ids:
-        tot = sum(m[docid] for m in match_dicts)
-        search_tuples.append((docid, tot.real * 10.0 / (tot.imag + 1), tot.real, tot.imag))
+    tots = ((docid, sum(m[docid] for m in match_dicts)) for docid in match_ids)
+    search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag) for did,t in tots]
     log.debug('search_tupl: {:f} s'.format(time.clock() - start))
 
     # Return search results
