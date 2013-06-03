@@ -342,7 +342,7 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     query_word_hashes = [get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()]
     for wh in query_word_hashes:
         if wh not in matches_cache:
-            doc_id_set = set()
+            doc_id_set = frozenset()
             matches = dict()
             for size, in cur.execute('SELECT size FROM match WHERE id=?', (wh,)):
                 with db_conn.blobopen('main', 'match', 'matches_blob', wh, False) as blob:
@@ -350,11 +350,12 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
                     blob.readinto(buf, 0, size)
                     int_list = varint.decode(buf)
                     assert len(int_list) % 3 == 0, 'int_list should contain n groups of docid,cnt,avgidx'
-                    doc_id_set = set()
-                    matches = dict()
+                    doc_id_set = []
+                    matches = collections.Counter()
                     for i in range(0, len(int_list), 3):
-                        doc_id_set.add(int_list[i])
+                        doc_id_set.append(int_list[i])
                         matches[int_list[i]] = complex(int_list[i+1], int_list[i+2])
+                    doc_id_set = frozenset(doc_id_set)
             matches_cache[wh] = doc_id_set, matches
         else:
             doc_id_set, matches = matches_cache[wh]
@@ -364,23 +365,22 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
 
     # Compute the intersection between matches set, and insert into search
     start = time.clock()
-    match_ids = reduce(set.intersection, doc_id_sets)
+    match_ids = reduce(frozenset.intersection, doc_id_sets)
     log.debug('Reduce     : {:f} s'.format(time.clock() - start))
     start = time.clock()
-    search_tuples = []
-    for docid in match_ids:
-        tot  = sum(m[docid] for m in match_dicts) / len(match_dicts)
-        search_tuples.append((docid, tot.real * 10.0 / (tot.imag + 1), tot.real, tot.imag))
-    log.debug('docid loop : {:f} s'.format(time.clock() - start))
+    tot_stats = collections.Counter()
+    for did in match_ids:
+        for m in match_dicts:
+            tot_stats[did] += m[did]
+    search_tuples = [(did, tot_stats[did].real * 10.0 / (tot_stats[did].imag + 1), tot_stats[did].real, tot_stats[did].imag) for did in match_ids]
+    log.debug('search_tupl: {:f} s'.format(time.clock() - start))
 
     # Return search results
     start = time.clock()
     search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
                        reverse=orderdir_map[orderdir])
     log.debug('Sort       : {:f} s'.format(time.clock() - start))
-    start = time.clock()
     result_docids = search_tuples[offset: offset + limit]
-    log.debug('Slice      : {:f} s'.format(time.clock() - start))
     start = time.clock()
     c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
                         ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
