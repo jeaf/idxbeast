@@ -368,10 +368,10 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     match_ids = reduce(frozenset.intersection, doc_id_sets)
     log.debug('Reduce     : {:f} s'.format(time.clock() - start))
     start = time.clock()
-    tot_stats = collections.Counter()
-    for d,s in ((d,s) for (d,s) in match_dicts[0].iteritems() if d in match_ids):
-        tot_stats[d] += s + sum(m[d] for m in match_dicts[1:])
-    search_tuples = [(did, tot_stats[did].real * 10.0 / (tot_stats[did].imag + 1), tot_stats[did].real, tot_stats[did].imag) for did in match_ids]
+    search_tuples = []
+    for docid in match_ids:
+        tot = sum(m[docid] for m in match_dicts)
+        search_tuples.append((docid, tot.real * 10.0 / (tot.imag + 1), tot.real, tot.imag))
     log.debug('search_tupl: {:f} s'.format(time.clock() - start))
 
     # Return search results
