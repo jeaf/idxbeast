@@ -368,7 +368,6 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     match_ids = reduce(frozenset.intersection, doc_id_sets)
     log.debug('Reduce     : {:f} s'.format(time.clock() - start))
     start = time.clock()
-    search_tuples = []
     tots = ((docid, sum(m[docid] for m in match_dicts)) for docid in match_ids)
     search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag) for did,t in tots]
     log.debug('search_tupl: {:f} s'.format(time.clock() - start))
