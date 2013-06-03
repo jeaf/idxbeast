@@ -368,7 +368,9 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     match_ids = reduce(frozenset.intersection, doc_id_sets)
     log.debug('Reduce     : {:f} s'.format(time.clock() - start))
     start = time.clock()
-    tots = ((docid, sum(m[docid] for m in match_dicts)) for docid in match_ids)
+    tots = [(docid, sum(m[docid] for m in match_dicts)) for docid in match_ids]
+    log.debug('tots       : {:f} s'.format(time.clock() - start))
+    start = time.clock()
     search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag) for did,t in tots]
     log.debug('search_tupl: {:f} s'.format(time.clock() - start))
 
@@ -377,8 +379,8 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
                        reverse=orderdir_map[orderdir])
     log.debug('Sort       : {:f} s'.format(time.clock() - start))
-    result_docids = search_tuples[offset: offset + limit]
     start = time.clock()
+    result_docids = search_tuples[offset: offset + limit]
     c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
                         ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
     log.debug('Select ids : {:f} s'.format(time.clock() - start))
