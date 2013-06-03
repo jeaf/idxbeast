@@ -354,7 +354,7 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
                     matches = dict()
                     for i in range(0, len(int_list), 3):
                         doc_id_set.add(int_list[i])
-                        matches[int_list[i]] = (int_list[i+1], int_list[i+2])
+                        matches[int_list[i]] = complex(int_list[i+1], int_list[i+2])
             matches_cache[wh] = doc_id_set, matches
         else:
             doc_id_set, matches = matches_cache[wh]
@@ -369,22 +369,19 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     start = time.clock()
     search_tuples = []
     for docid in match_ids:
-        freq   = 0
-        avgidx = 0
-        for i, m in enumerate(match_dicts):
-            f, a    = m[docid]
-            freq   += f
-            avgidx += a
-        freq   = freq / (i + 1)
-        avgidx = avgidx / (i + 1)
-        search_tuples.append((docid, freq * 10.0 / (avgidx + 1), freq, avgidx))
+        tot  = sum(m[docid] for m in match_dicts) / len(match_dicts)
+        search_tuples.append((docid, tot.real * 10.0 / (tot.imag + 1), tot.real, tot.imag))
     log.debug('docid loop : {:f} s'.format(time.clock() - start))
 
     # Return search results
     start = time.clock()
     search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
                        reverse=orderdir_map[orderdir])
+    log.debug('Sort       : {:f} s'.format(time.clock() - start))
+    start = time.clock()
     result_docids = search_tuples[offset: offset + limit]
+    log.debug('Slice      : {:f} s'.format(time.clock() - start))
+    start = time.clock()
     c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
                         ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
     log.debug('Select ids : {:f} s'.format(time.clock() - start))
