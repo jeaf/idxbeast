@@ -317,7 +317,6 @@ def do_index(args):
 
     # Wait for indexing to complete, update status
     curpos = getcurpos()
-    #c_width = get_console_size()[0] - 10
     c_width = args.cuiwidth
     while dstat.status != 'Idle':
         time.sleep(0.2)
