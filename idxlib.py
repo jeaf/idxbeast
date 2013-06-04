@@ -97,9 +97,9 @@ try:
     # Set the public functions to point to the library
     fnv   = lib.fnv
     index = lib_index_
+
 except Exception, ex:
     # Could not load the library, use Python implementation
-    print 'Could not load library:', ex
     fnv   = fnv_
     index = index_
 
