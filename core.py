@@ -181,14 +181,12 @@ def get_word_hash(word):
 class Document(object):
     def index(self):
         try:
-            words, word_cnt      = idxlib.index(self.id, self.get_text())
-            self.words           = words
-            self.word_cnt        = word_cnt
-            self.unique_word_cnt = len(words)
+            self.words, self.word_cnt = idxlib.index(self.id, self.get_text())
         except Exception, ex:
             log.warning('Exception while processing {}, exception: {}'.
                         format(self, ex))
-            self.words = dict()
+            self.words, self.word_cnt = dict(), 0
+        self.unique_word_cnt = len(self.words)
 
 class File(Document):
     def __init__(self, path):
