@@ -337,22 +337,25 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
     # Decode the matches that correspond to the query
     doc_id_sets = []
     match_dicts = []
-    query_word_hashes = [get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()]
-    for wh in query_word_hashes:
+    for wh in (get_word_hash(w) for w in
+               unidecode.unidecode(words).translate(translate_table).split()):
         if wh not in matches_cache:
             doc_id_set = frozenset()
             matches = dict()
-            for size, in cur.execute('SELECT size FROM match WHERE id=?', (wh,)):
-                with db_conn.blobopen('main', 'match', 'matches_blob', wh, False) as blob:
+            for size, in cur.execute('SELECT size FROM match WHERE id=?',
+                                     (wh,)):
+                with db_conn.blobopen('main', 'match', 'matches_blob',
+                                      wh, False) as blob:
                     buf = bytearray(size)
                     blob.readinto(buf, 0, size)
                     int_list = varint.decode(buf)
-                    assert len(int_list) % 3 == 0, 'int_list should contain n groups of docid,cnt,avgidx'
+                    assert len(int_list) % 3 == 0
                     doc_id_set = []
                     matches = collections.Counter()
                     for i in range(0, len(int_list), 3):
                         doc_id_set.append(int_list[i])
-                        matches[int_list[i]] = complex(int_list[i+1], int_list[i+2])
+                        matches[int_list[i]] = complex(int_list[i+1],
+                                                       int_list[i+2])
                     doc_id_set = frozenset(doc_id_set)
             matches_cache[wh] = doc_id_set, matches
         else:
@@ -362,15 +365,18 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
 
     # Compute the intersection between matches set, and insert into search
     match_ids = reduce(frozenset.intersection, doc_id_sets)
-    tots = [(docid, sum(m[docid] for m in match_dicts)) for docid in match_ids]
-    search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag) for did,t in tots]
+    tots = ((docid, sum(m[docid] for m in match_dicts)) for docid in match_ids)
+    search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag)
+                     for did,t in tots]
 
     # Return search results
     search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
                        reverse=orderdir_map[orderdir])
     result_docids = search_tuples[offset: offset + limit]
-    c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
-                        ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
+    c = cur.executemany('''SELECT ?,?,?,id,type_,locator,title
+                           FROM doc WHERE id=?''',
+                        ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx
+                                                    in result_docids))
     return len(match_ids), c
 
 class IndexerSharedData(ctypes.Structure):
