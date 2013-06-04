@@ -483,12 +483,12 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
     while not finished:
 
         # Extract the documents available from the queue
-        dispatcher_shared_data.db_status = 'emptying queue'
         docs              = []
         doc_ids_to_delete = []
         try:
             while True and len(docs) < 10000:
-                doc = db_q.get(True, 0.5)
+                dispatcher_shared_data.db_status = 'queueing indexed documents ({})'.format(len(docs))
+                doc = db_q.get(True, 1.0)
                 if doc:
                     docs.append(doc)
                     if hasattr(doc, 'old_id'):
@@ -498,6 +498,9 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
                     break
         except Queue.Empty:
             pass
+
+        # At this point, if we could not get any doc from the queue, continue
+        if len(docs) == 0: continue
 
         # Merge the matches from all the documents
         dispatcher_shared_data.db_status = 'merge words ({} docs)'.format(len(docs))
