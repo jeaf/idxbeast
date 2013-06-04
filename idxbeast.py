@@ -31,6 +31,18 @@ def validate_logfile(f):
                                          'used as the log file.')
     return op.abspath(op.expanduser(f))
 
+def validate_cuiwidth(w):
+    try:
+        val = int(w)
+    except:
+        raise argparse.ArgumentTypeError('{} is not a valid integer'.format(w))
+    if val < 60 or val > 120:
+        raise argparse.ArgumentTypeError('''the console user interface width
+                                            must be between 60 and 120
+                                            inclusive, {} is invalid.'''.
+                                            format(val))
+    return val
+
 def validate_src(src):
 
     # First check if the src is a URL (only http is supported)
@@ -104,6 +116,11 @@ def main():
                              'the path, and will expand to the current '
                              'user\'s home directory. Defaults to '
                              '~\\idxbeast.log.')
+    parser.add_argument('--cuiwidth', type=validate_cuiwidth,
+                        default=validate_cuiwidth(100),
+                        help='''The width of the console user interface. Must
+                                be between 60 and 120 inclusive. The default
+                                is 100.''')
 
     # Add index specific arguments
     if cmd == 'index':

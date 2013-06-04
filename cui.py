@@ -219,9 +219,9 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index,
 
     # Print the help and current parameters
     page_fmt = '{} of {}'.format(sel_page + 1, page_cnt) if page_cnt else ''
-    print 'PgUp/PgDn  Page             : {}'.format(str_fill(page_fmt, width))
-    print 'F1         Order by         : {}'.format(str_fill(orderby, width))
-    print 'F2         Order direction  : {}'.format(str_fill(orderdir, width))
+    print 'PgUp/PgDn  Page             : {}'.format(str_fill(page_fmt, width - 32))
+    print 'F1         Order by         : {}'.format(str_fill(orderby , width - 32))
+    print 'F2         Order direction  : {}'.format(str_fill(orderdir, width - 32))
     print
     print 'F3         Open with notepad'
     print 'F4         Open with default application'
@@ -240,8 +240,7 @@ def do_search(args):
     # Connect to the DB
     conn = apsw.Connection(args.db)
 
-    # Setup initial parameters. The search string is now empty, but could also
-    # eventually be initialized from the arguments.
+    # Setup initial parameters
     search_str = ' '.join(args.word)
     sel_index  = 0
     sel_page   = 0
@@ -249,7 +248,7 @@ def do_search(args):
     orderdir   = 'desc'
     init_line  = getcurpos().y
     res_limit  = 5
-    width      = 80
+    width      = args.cuiwidth
 
     # Process user input and update display
     while True:
@@ -318,7 +317,8 @@ def do_index(args):
 
     # Wait for indexing to complete, update status
     curpos = getcurpos()
-    c_width = get_console_size()[0] - 10
+    #c_width = get_console_size()[0] - 10
+    c_width = args.cuiwidth
     while dstat.status != 'Idle':
         time.sleep(0.2)
         setcurpos(curpos.x, curpos.y)
