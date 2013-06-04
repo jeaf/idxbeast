@@ -197,7 +197,7 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index,
 
     # Print the results table header
     print width*'-'
-    print '      | relev |  freq | avgidx | document'
+    print '      |  relev |   freq |  avgidx | document'
     print width*'-'
 
     # Fill the results table
@@ -209,9 +209,9 @@ def upd_search_display(conn, width, res_limit, search_str, sel_index,
             sel_loc = locator
         else:
             selection_str = ' '
-        print ' {}[{}] | {:.3f} | {:>5} | {:>6} | {}'.format(
+        print ' {}[{}] | {:>6.3f} | {:>6} | {:>7} | {}'.format(
               chr(ord('A') + row_count), selection_str, relev, int(freq),
-              int(avgidx), str_fill(locator, width - 33))
+              int(avgidx), str_fill(locator, width - 36))
         row_count += 1
     for _ in range(res_limit - row_count): print ' '*width
     print width*'-'
