@@ -332,11 +332,9 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
         - desc
     """
 
-    log.debug('Starting search...')
     cur = db_conn.cursor()
 
     # Decode the matches that correspond to the query
-    start = time.clock()
     doc_id_sets = []
     match_dicts = []
     query_word_hashes = [get_word_hash(w) for w in unidecode.unidecode(words).translate(translate_table).split()]
@@ -361,29 +359,18 @@ def search(db_conn, words, limit, offset, orderby='relev', orderdir='desc'):
             doc_id_set, matches = matches_cache[wh]
         doc_id_sets.append(doc_id_set)
         match_dicts.append(matches)
-    log.debug('Matches dec: {:f} s'.format(time.clock() - start))
 
     # Compute the intersection between matches set, and insert into search
-    start = time.clock()
     match_ids = reduce(frozenset.intersection, doc_id_sets)
-    log.debug('Reduce     : {:f} s'.format(time.clock() - start))
-    start = time.clock()
     tots = [(docid, sum(m[docid] for m in match_dicts)) for docid in match_ids]
-    log.debug('tots       : {:f} s'.format(time.clock() - start))
-    start = time.clock()
     search_tuples = [(did, t.real * 10.0 / (t.imag + 1), t.real, t.imag) for did,t in tots]
-    log.debug('search_tupl: {:f} s'.format(time.clock() - start))
 
     # Return search results
-    start = time.clock()
     search_tuples.sort(key=operator.itemgetter(orderby_map[orderby]),
                        reverse=orderdir_map[orderdir])
-    log.debug('Sort       : {:f} s'.format(time.clock() - start))
-    start = time.clock()
     result_docids = search_tuples[offset: offset + limit]
     c = cur.executemany('SELECT ?,?,?,id,type_,locator,title FROM doc WHERE id=?',
                         ((relev,freq,avgidx,docid) for docid,relev,freq,avgidx in result_docids))
-    log.debug('Select ids : {:f} s'.format(time.clock() - start))
     return len(match_ids), c
 
 class IndexerSharedData(ctypes.Structure):
