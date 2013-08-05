@@ -28,7 +28,7 @@ installed on your system.
   Unidecode converts unicode text to ASCII in a manner similar to what a human
   with a U.S. keyboard would do. This is used by idxbeast for "flattening"
   input texts, which allows for words with accents, for exemple, to map to the
-  same word.
+  same word without them (e.g., élève maps to eleve).
 
 * **pywin32** (<http://sourceforge.net/projects/pywin32>)
 
@@ -42,9 +42,8 @@ installed on your system.
 
 ### Optional
 
-The following dependencies are required to build the idxlib.dll optimization
-C library. That library is optional, and as of this writing it is not completed
-nor functional.
+The following dependencies are required to build the optional idxlib.dll
+optimization C library.
 
 * **TCC** (<http://bellard.org/tcc/>)
 
@@ -65,7 +64,8 @@ capabilities.
 
 To compile idxlib.dll, simply run the make utility from inside a command prompt
 located into the idxbeast directory. idxbeast will automatically use the
-optimized library for indexing once it has been built.
+optimized library for indexing once it has been built. You will need to modify
+the Makefile so it knows the location of your C compiler (TCC).
 
 Usage
 -----
@@ -102,7 +102,7 @@ future.
 
 idxbeast provides a rudimentary web application (server.py) built on the Bottle
 web framework.  Some effort could be invested in making this web application
-more polished and feature rich.
+more polished and feature-rich.
 
 ### Microsoft Outlook contents indexing
 
@@ -119,8 +119,8 @@ hold.
 ### Extended search syntax
 
 As of this writing, it is only possible to search for one or more words, all
-joined with the implicit AND operator. This means that for a document to match, all
-words specified in the search string must be present in the document.
+joined with an implicit AND operator. This means that for a document to match,
+all words specified in the search string must be present in the document.
 
 It would be interesting to provide an extended search syntax, allowing for more
 flexibility in the way indexed documents are searched. For example,
@@ -128,7 +128,7 @@ flexibility in the way indexed documents are searched. For example,
 * Provide a OR operator that can be mixed freely with the AND operator. This
   would also require the introduction of parenthesis in the search string to
   properly define precedence.
-* Provide a "minus" operator that would allow exluding words.
+* Provide a "minus" operator that would allow excluding words.
 * Allow for time constraints (e.g., modified after April 15th) to be provided
   in the search string.
 * etc.
@@ -147,5 +147,5 @@ Acknowledgements
   <http://commons.wikimedia.org/wiki/File:Chaos_Monster_and_Sun_God.png>.
 
 * The test data files were taken from Project Gutenberg
-  (<www.gutenberg.org>)
+  (<http://www.gutenberg.org>)
 
