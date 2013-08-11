@@ -138,7 +138,8 @@ def main():
                                  'CPUs.')
         parser.add_argument('--exts',
                             default='bat c cpp cs cxx h hpp htm html ini java '
-                                    'js log md py rest rst txt xml yaml yml',
+                                    'js log md py rest rst txt vim xml yaml '
+                                    'yml',
                             help='A space separated list of file extensions '
                                  'to consider for indexing. The default is a '
                                  'list of the most common text files (e.g., '
