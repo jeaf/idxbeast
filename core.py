@@ -144,6 +144,11 @@ def create_tables(conn):
     # reuse ids from previously deleted rows. We don't want this because updated
     # documents are deleted from the DB, but their id may still be inside the
     # index for a word.
+    #
+    # The content_indexed flag indicates if the content of the file was
+    # indexed, or if only the title was indexed. This makes sense for binary
+    # files for example, which cannot be indexed for their content, but can
+    # still be searched for their path.
     sql('''CREATE TABLE IF NOT EXISTS doc(
            id              INTEGER PRIMARY KEY AUTOINCREMENT,
            type_           INTEGER NOT NULL,
@@ -152,6 +157,7 @@ def create_tables(conn):
            title           TEXT,
            extension       TEXT,
            size            INTEGER,
+           content_indexed INTEGER NOT NULL DEFAULT 1,
            word_cnt        INTEGER NOT NULL,
            unique_word_cnt INTEGER NOT NULL,
            from_           TEXT,
@@ -189,21 +195,25 @@ class Document(object):
         self.unique_word_cnt = len(self.words)
 
 class File(Document):
-    def __init__(self, path):
-        self.type_      = doctype_file
-        self.locator    = os.path.abspath(path)
-        self.mtime      = os.path.getmtime(self.locator)
-        self.title      = None
-        root, ext       = os.path.splitext(self.locator)
-        self.extension  = ext[1:] if ext.startswith('.') else ext
-        self.size       = os.path.getsize(self.locator)
-        self.from_      = None
-        self.to_        = None
+    def __init__(self, path, content_indexed):
+        self.type_           = doctype_file
+        self.locator         = os.path.abspath(path)
+        self.mtime           = os.path.getmtime(self.locator)
+        self.title           = None
+        root, ext            = os.path.splitext(self.locator)
+        self.extension       = ext[1:] if ext.startswith('.') else ext
+        self.size            = os.path.getsize(self.locator)
+        self.content_indexed = int(content_indexed)
+        self.from_           = None
+        self.to_             = None
     def __repr__(self):
         return '<File ' + ' ' + self.locator + '>'
     def get_text(self):
-        with open(self.locator, 'r') as f:
-            return ''.join((self.locator, ' ', f.read()))
+        if self.content_indexed:
+            with open(self.locator, 'r') as f:
+                return ''.join((self.locator, ' ', f.read()))
+        else:
+            return self.locator
 
 def iterfiles(rootdir, exts):
     supported_extensions = set(''.join(['.', ext]) for ext in exts.split())
@@ -211,11 +221,10 @@ def iterfiles(rootdir, exts):
         for name in filenames:
             path = os.path.join(dirpath, name)
             root, ext = os.path.splitext(path)
-            if ext in supported_extensions:
-                try:
-                    yield File(path), None
-                except Exception, ex:
-                    yield path, ex
+            try:
+                yield File(path, ext in supported_extensions), None
+            except Exception, ex:
+                yield path, ex
 
 class OutlookEmail(Document):
     """
@@ -224,14 +233,15 @@ class OutlookEmail(Document):
     http://msdn.microsoft.com/en-us/library/aa210946(v=office.11).aspx
     """
     def __init__(self, entry_id, mapi, from_, to_, size, subject, rt):
-        self.type_   = doctype_email
-        self.locator = entry_id
-        self.mtime   = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
-        self.title   = subject
-        self.size    = int(size)
-        self.from_   = from_
-        self.to_     = to_
-        #self.mapi    = mapi
+        self.type_           = doctype_email
+        self.locator         = entry_id
+        self.mtime           = time.mktime(datetime.datetime(rt.year, rt.month, rt.day, rt.hour, rt.minute, rt.second).timetuple())
+        self.title           = subject
+        self.size            = int(size)
+        self.content_indexed = 1
+        self.from_           = from_
+        self.to_             = to_
+        #self.mapi            = mapi
     def __repr__(self):
         return '<Email ' + str(self.title) + '>'
     def get_text(self):
@@ -283,15 +293,16 @@ def iteremails(folder_filter):
 
 class Webpage(Document):
     def __init__(self, url, size, soup):
-        self.type_      = doctype_webpage
-        self.locator    = url
-        self.mtime      = 0
-        self.title      = soup.title.get_text()
-        self.extension  = None
-        self.size       = size
-        self.from_      = None
-        self.to_        = None
-        self.soup       = soup
+        self.type_           = doctype_webpage
+        self.locator         = url
+        self.mtime           = 0
+        self.title           = soup.title.get_text()
+        self.extension       = None
+        self.size            = size
+        self.content_indexed = 1
+        self.from_           = None
+        self.to_             = None
+        self.soup            = soup
     def __repr__(self):
         return '<Webpage ' + ' ' + self.locator + '>'
     def get_text(self):
@@ -560,9 +571,9 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
                 cur.executemany('DELETE FROM doc WHERE id=?', doc_ids_to_delete)
 
             # Insert new/updated documents
-            tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.size, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
+            tuples = [(doc.id, doc.type_, doc.locator, doc.mtime, doc.title, doc.extension, doc.size, doc.content_indexed, doc.word_cnt, doc.unique_word_cnt, doc.from_, doc.to_) for doc in docs]
             dispatcher_shared_data.db_status = 'insert docs ({})'.format(len(tuples))
-            cur.executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','size','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuples)
+            cur.executemany("INSERT INTO doc ('id','type_','locator','mtime','title','extension','size','content_indexed','word_cnt','unique_word_cnt','from_','to_') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuples)
 
             # Right before going out of the current scope, set the status to commit.
             # When the scope ends, the COMMIT will take place because of the context
