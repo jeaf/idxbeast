@@ -50,22 +50,10 @@ optimization C library.
   TCC means "Tiny C Compiler". This is the only tested compiler for the
   optional idxlib.dll C library.
 
-* **make for Windows** (<http://unxutils.sourceforge.net/>)
-
-  A Makefile is provided for building the idxlib.dll library. The make utility
-  can be found in the GNU utilities for Win32 package.
-
 Compilation
 -----------
 
-No compilation is required for basic idxbeast usage. However, an experimental
-idxlib.dll library can be compiled to provide faster text indexing
-capabilities.
-
-To compile idxlib.dll, simply run the make utility from inside a command prompt
-located into the idxbeast directory. idxbeast will automatically use the
-optimized library for indexing once it has been built. You will need to modify
-the Makefile so it knows the location of your C compiler (TCC).
+To compile idxlib.dll, run build.py.
 
 Usage
 -----
