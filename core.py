@@ -22,14 +22,14 @@ import logging
 import multiprocessing as mp
 import operator
 import os.path
-import Queue
+import queue
 import string
 import struct
 import threading
 import time
 import traceback
-import urllib2
-from   urlparse import urljoin
+import urllib.request, urllib.error, urllib.parse
+from   urllib.parse import urljoin
 
 import apsw
 import bs4
@@ -38,6 +38,7 @@ import win32com.client
 
 import charmap_gen
 import varint
+from functools import reduce
 
 class MultiprocessingLogger(object):
     """
@@ -188,7 +189,7 @@ class Document(object):
     def index(self):
         try:
             self.words, self.word_cnt = idxlib.index(self.id, self.get_text())
-        except Exception, ex:
+        except Exception as ex:
             log.warning('Exception while processing {}, exception: {}'.
                         format(self, ex))
             self.words, self.word_cnt = dict(), 0
@@ -223,7 +224,7 @@ def iterfiles(rootdir, exts):
             root, ext = os.path.splitext(path)
             try:
                 yield File(path, ext in supported_extensions), None
-            except Exception, ex:
+            except Exception as ex:
                 yield path, ex
 
 class OutlookEmail(Document):
@@ -254,7 +255,7 @@ class OutlookEmail(Document):
         t = ''
         if self.to_:
             t = self.to_
-        return ''.join((f, ' ', t, ' ', self.title, ' ', unicode(mail_item.Body)))
+        return ''.join((f, ' ', t, ' ', self.title, ' ', str(mail_item.Body)))
 
 def iteremails(folder_filter):
     outlook = win32com.client.Dispatch('Outlook.Application')
@@ -285,9 +286,9 @@ def iteremails(folder_filter):
                                           row['Subject'],
                                           row['ReceivedTime'])
                         yield oe, None
-                    except Exception, ex:
+                    except Exception as ex:
                         yield None, ex
-            except Exception, ex:
+            except Exception as ex:
                 log.warning('Exception while processing Outlook folder, '
                               'exception: {}'.format(ex))
 
@@ -306,17 +307,17 @@ class Webpage(Document):
     def __repr__(self):
         return '<Webpage ' + ' ' + self.locator + '>'
     def get_text(self):
-        return unicode(self.soup)
+        return str(self.soup)
 
 def iterwebpages(url, recurselinks):
     """Yield web page documents, recursing through links if necessary."""
 
     # Read and yield the root page
     try:
-        s = urllib2.urlopen(url).read()
+        s = urllib.request.urlopen(url).read()
         soup = bs4.BeautifulSoup(s)
         yield Webpage(url, len(s), soup), None
-    except Exception, ex:
+    except Exception as ex:
         yield None, ex
 
     # If we must recurse, loop through links
@@ -433,7 +434,7 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array,
 
     # List all documents
     chained_iterfiles  = itertools.chain.from_iterable(
-                         iterfiles(unicode(rootdir), exts)
+                         iterfiles(str(rootdir), exts)
                          for rootdir in srcs_dir)
     chained_webpages   = itertools.chain.from_iterable(
                          iterwebpages(webpage, recurselinks)
@@ -463,7 +464,7 @@ def dispatcher_proc(db_path, dispatcher_shared_data, indexer_shared_data_array,
             else:
                 dispatcher_shared_data.uptodate_count += 1
 
-        except Exception, ex:
+        except Exception as ex:
             log.error('Dispatcher: error while processing doc {}, error: {}'.
                         format(doc, traceback.format_exc()))
 
@@ -505,7 +506,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
                 else:
                     finished = True
                     break
-        except Queue.Empty:
+        except queue.Empty:
             pass
 
         # At this point, if we could not get any doc from the queue, continue
@@ -515,13 +516,13 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
         dispatcher_shared_data.db_status = 'merge words ({} docs)'.format(len(docs))
         words = collections.defaultdict(bytearray)
         for doc in docs:
-            for wh, buf in doc.words.iteritems():
+            for wh, buf in doc.words.items():
                 words[wh].extend(buf)
 
         # Figure out which word_hash are present in the DB, and which are not
         dispatcher_shared_data.db_status = 'select ({})'.format(len(words))
         wh_in_db = dict((i,size) for (i,size) in cur.execute('SELECT id,size FROM match') if i in words)
-        wh_new   = set(words.keys()).difference(wh_in_db.keys())
+        wh_new   = set(words.keys()).difference(list(wh_in_db.keys()))
 
         # Create the new tuples for new words
         dispatcher_shared_data.db_status = 'new ({})'.format(len(wh_new))
@@ -538,7 +539,7 @@ def dbwriter_proc(db_path, db_q, dispatcher_shared_data, log_q):
             tuples_upd  = []
             tuples_size = []
             blob = None
-            for word_hash, old_size in wh_in_db.iteritems():
+            for word_hash, old_size in wh_in_db.items():
                 enc_matches = words[word_hash]
                 if blob:
                     blob.reopen(word_hash)

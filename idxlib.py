@@ -37,10 +37,10 @@ def fnv_(s):
     >>> fnv_('289uy4r98#delta') == lib.fnv('289uy4r98#delta')
     True
     """
-    h = 14695981039346656037L # 64 bit offset basis
+    h = 14695981039346656037 # 64 bit offset basis
     for c in s:
         h ^= ord(c)
-        h *= 1099511628211L # 64 bit FNV prime
+        h *= 1099511628211 # 64 bit FNV prime
         h &= 0xFFFFFFFFFFFFFFFF
     return c_longlong(h).value # Return as a signed long long so it can be used
                                # as a SQLite ROWID.
@@ -57,7 +57,7 @@ def index_(docid, text):
         word_counters[1] += i
     words = dict((core.get_word_hash(w), varint.encode(
                  [docid, cnts[0], int(cnts[1]/cnts[0])]))
-                 for w,cnts in words.iteritems())
+                 for w,cnts in words.items())
     return words, i + 1
 
 def lib_index_(docid, text):
@@ -98,7 +98,7 @@ try:
     fnv   = lib.fnv
     index = lib_index_
 
-except Exception, ex:
+except Exception as ex:
     # Could not load the library, use Python implementation
     fnv   = fnv_
     index = index_
@@ -108,20 +108,20 @@ def perf_test():
     for i in range(100000):
         fnv_('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
     elapsed_time = time.clock() - start_time
-    print 'Python fnv exec time: {} seconds'.format(elapsed_time)
+    print('Python fnv exec time: {} seconds'.format(elapsed_time))
 
     start_time = time.clock()
     for i in range(100000):
         lib.fnv('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w')
     elapsed_time = time.clock() - start_time
-    print 'c fnv exec time     : {} seconds'.format(elapsed_time)
+    print('c fnv exec time     : {} seconds'.format(elapsed_time))
 
     word_hash_struct = struct.Struct('<xxxxxxxxQ')
     start_time = time.clock()
     for i in range(100000):
         word_hash_struct.unpack(hashlib.md5('shdfklaiugrliagwrligbaw98ry9a8w7uf9a8w').digest())[0] & 0x00000000000000000FFFFFFFFFFFFFFF
     elapsed_time = time.clock() - start_time
-    print 'Python MD5 exec time: {} seconds'.format(elapsed_time)
+    print('Python MD5 exec time: {} seconds'.format(elapsed_time))
 
 
 def main():

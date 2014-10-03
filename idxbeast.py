@@ -14,7 +14,7 @@ import logging.handlers
 import multiprocessing
 import os.path as op
 import sys
-import urlparse
+import urllib.parse
 
 import core
 import cui
@@ -46,7 +46,7 @@ def validate_cuiwidth(w):
 def validate_src(src):
 
     # First check if the src is a URL (only http is supported)
-    parse_result = urlparse.urlparse(src)
+    parse_result = urllib.parse.urlparse(src)
     if parse_result.scheme == 'http':
         return parse_result.geturl()
 
@@ -65,7 +65,7 @@ def validate_nb_procs(nb_procs):
     except:
         raise argparse.ArgumentTypeError('{} is not a valid integer'.format(
                                          nb_procs))
-    if val not in range(17):
+    if val not in list(range(17)):
         raise argparse.ArgumentTypeError('the number of processes must be '
                                          'between 0 and 16 inclusive, {} is '
                                          'invalid.'.format(val))
@@ -76,7 +76,7 @@ def validate_recurselinks(n):
         val = int(n)
     except:
         raise argparse.ArgumentTypeError('{} is not a valid integer'.format(n))
-    if val not in range(9):
+    if val not in list(range(9)):
         raise argparse.ArgumentTypeError('the recursion level must be '
                                          'between 0 and 8 inclusive, {} is '
                                          'invalid.'.format(val))
@@ -88,14 +88,14 @@ def main():
     supported_cmds = ['index', 'search', 'server', 'stats']
     cmd = sys.argv[1] if len(sys.argv) > 1 else None
     if not cmd in supported_cmds:
-        print 'Error: invalid command.'
-        print
-        print 'The first argument must be a command name. Supported commands:'
-        print
-        for c in supported_cmds: print '    {}'.format(c)
-        print
-        print 'For detailed usage information of a specific command, please '
-        print 'use the -h option. For example: idxbeast.py index -h.'
+        print('Error: invalid command.')
+        print()
+        print('The first argument must be a command name. Supported commands:')
+        print()
+        for c in supported_cmds: print('    {}'.format(c))
+        print()
+        print('For detailed usage information of a specific command, please ')
+        print('use the -h option. For example: idxbeast.py index -h.')
         sys.exit(0)
 
     # Create the parser object, add common arguments
@@ -161,9 +161,9 @@ def main():
 
     # If the command is search, server, or stats, the DB must already exists
     if cmd in 'search server stats'.split() and not op.isfile(args.db):
-        print 'Error: the specified DB ({}) does not exist.'.format(args.db)
-        print 'The index command should be run at least once before executing'
-        print 'a search, server, or stats command.'
+        print('Error: the specified DB ({}) does not exist.'.format(args.db))
+        print('The index command should be run at least once before executing')
+        print('a search, server, or stats command.')
         sys.exit(0)
 
     # Setup file logging in the core module
