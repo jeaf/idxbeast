@@ -1,3 +1,4 @@
+import codecs
 from ctypes import *
 import os
 import os.path as osp
@@ -22,6 +23,10 @@ conn.execute('''CREATE TABLE IF NOT EXISTS file(
                 id          INTEGER PRIMARY KEY,
                 path        INTEGER NOT NULL UNIQUE)''')
 
+conn.execute('''CREATE TABLE IF NOT EXISTS word(
+                id          INTEGER PRIMARY KEY,
+                word        TEXT UNIQUE)''')
+
 conn.execute('''CREATE TABLE IF NOT EXISTS match(
                 word_id     INTEGER,
                 doc_id      INTEGER,
@@ -33,7 +38,7 @@ supported_exts = '''bat c cpp cs cxx h hpp htm html ini java js log md py rest
 supported_exts = set('.' + e for e in supported_exts.split())
 
 lib = cdll.idxbeast
-lib.parse_doc.argtypes = [c_longlong, POINTER(c_uint), c_longlong]
+lib.parse_doc.argtypes = [c_longlong, POINTER(c_ubyte), c_longlong]
 lib.parse_doc.restype  = c_int
 
 def lookup_path(p):
@@ -52,11 +57,18 @@ def lookup_path(p):
             cur_parent = cur.lastrowid
     return cur_parent
 
-def index_path(p):
-    pass
+def lookup_file(path_id):
+    c = conn.cursor()
+    for row in c.execute('SELECT id FROM file WHERE path=?', (path_id,)):
+        return row[0]
+    c.execute('INSERT INTO file(path) VALUES(?)', (path_id,))
+    return c.lastrowid
 
-def insert_file(f):
-    pass
+def index_doc(doc_id, text):
+    encoded_text = text.encode('utf-32')
+    arr = (c_ubyte * len(encoded_text))()
+    for i,c in enumerate(encoded_text): arr[i] = c
+    lib.parse_doc(doc_id, arr, len(arr))
 
 def parse(path):
     path = osp.abspath(path)
@@ -67,19 +79,33 @@ def parse(path):
     else: assert False, 'Invalid path: {}'.format(path)
 
 def parse_file(path):
-    assert osp.isfile(path)
+    assert osp.isfile(path), 'Path is not a file: {}'.format(path)
     path = osp.normpath(path)
 
     with conn:
 
         # Insert and index path
-        lookup_path(path)
-        index_path(path)
+        path_id = lookup_path(path)
+        index_doc(path_id, path)
 
-        # If content indexing support, insert and index file
+        # Try to read the file
+        s = None
         root, ext = os.path.splitext(path)
         if ext in supported_exts:
-            with open(path) as f: s = f.read()
+            try:
+                with open(path) as f: s = f.read()
+            except UnicodeDecodeError as ex:
+                print('Unicode error with {}: {}'.format(path, ex))
+                print('Will try to decode with UTF-8')
+                try:
+                    with codecs.open(path, encoding='utf-8') as f: s = f.read()
+                except UnicodeDecodeError as ex2:
+                    print('Decoding with UTF-8 also failed, giving up')
+
+        # If file was read, index it
+        if s:
+            file_id = lookup_file(path_id)
+            index_doc(file_id, s)
 
 if __name__ == '__main__':
     parse(sys.argv[1])
