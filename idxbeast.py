@@ -84,28 +84,31 @@ def parse_file(path):
 
     with conn:
 
-        # Insert and index path
         path_id = lookup_path(path)
         index_doc(path_id, path)
-
-        # Try to read the file
         s = None
         root, ext = os.path.splitext(path)
-        if ext in supported_exts:
-            try:
-                with open(path) as f: s = f.read()
-            except UnicodeDecodeError as ex:
-                print('Unicode error with {}: {}'.format(path, ex))
-                print('Will try to decode with UTF-8')
-                try:
-                    with codecs.open(path, encoding='utf-8') as f: s = f.read()
-                except UnicodeDecodeError as ex2:
-                    print('Decoding with UTF-8 also failed, giving up')
 
-        # If file was read, index it
-        if s:
-            file_id = lookup_file(path_id)
-            index_doc(file_id, s)
+        # Decode with system default
+        try:
+            with open(path) as f: s = f.read()
+        except UnicodeDecodeError as ex: pass
+
+        # Decode with UTF-8
+        if not s:
+            try:
+                with codecs.open(path, encoding='utf-8') as f:
+                    s = f.read()
+            except UnicodeDecodeError as ex2: pass
+
+        # Decode with ascii
+        if not s:
+            with codecs.open(path, encoding='ascii', errors='replace') as f:
+                s = f.read()
+
+        # Index contents
+        file_id = lookup_file(path_id)
+        index_doc(file_id, s)
 
 if __name__ == '__main__':
     parse(sys.argv[1])

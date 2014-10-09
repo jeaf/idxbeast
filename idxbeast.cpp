@@ -44,6 +44,7 @@ DLLEXP int parse_doc(int64_t docid, const uint8_t* text, int64_t len)
             cur_word += charmap[*utf32];
             --len;
             ++utf32;
+            REQUIRE(!len || *utf32 < sizeof(charmap), "Invalid charmap index");
         }
 
         // Store current word
