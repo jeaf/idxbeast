@@ -1,3 +1,13 @@
+# todo: determine a max word length, forcefully splitting if larger
+# todo: Python: if doc is larger than a certain max size, split in blocks to
+#       send to Cpp, however, Python must make sure to split blocks at word
+#       boundary
+# todo: read the doc directly into ctypes buffer (read_into)
+# todo: from Cpp, create a queue where blocks are accumulated, and a thread (or
+#       more) that pick them up and process them, storing results
+# todo: from Python, only retrieve results from Cpp when a certain number of
+#       words, or a certain quantity of total data, has been accumulated
+
 import codecs
 from ctypes import *
 import os
@@ -65,7 +75,10 @@ def lookup_file(path_id):
     return c.lastrowid
 
 def index_doc(doc_id, text):
-    encoded_text = text.encode('utf-32')
+    encoded_text = text.encode('utf-32') # Not specifying byte order will use
+                                         # the native byte order, which means
+                                         # the C++ lib can read the code points
+                                         # directly as uint32_t.
     arr = (c_ubyte * len(encoded_text))()
     for i,c in enumerate(encoded_text): arr[i] = c
     lib.parse_doc(doc_id, arr, len(arr))
@@ -78,7 +91,11 @@ def parse(path):
             for name in filenames: parse_file(os.path.join(dirpath, name))
     else: assert False, 'Invalid path: {}'.format(path)
 
+    # Get results from lib
+    lib.get_results()
+
 def parse_file(path):
+    print(path)
     assert osp.isfile(path), 'Path is not a file: {}'.format(path)
     path = osp.normpath(path)
 
