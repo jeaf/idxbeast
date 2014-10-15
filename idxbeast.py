@@ -15,7 +15,8 @@ import os.path as osp
 import sqlite3
 import sys
 
-conn = sqlite3.connect(osp.expanduser('~\\idxbeast.db'))
+db_file = osp.expanduser('~\\idxbeast.db')
+conn = sqlite3.connect(db_file)
 
 conn.execute('''CREATE TABLE IF NOT EXISTS doc(
                 id          INTEGER PRIMARY KEY,
@@ -48,8 +49,8 @@ supported_exts = '''bat c cpp cs cxx h hpp htm html ini java js log md py rest
 supported_exts = set('.' + e for e in supported_exts.split())
 
 lib = cdll.idxbeast
-lib.parse_doc.argtypes = [c_longlong, POINTER(c_ubyte), c_longlong]
-lib.parse_doc.restype  = c_int
+lib.push_block.argtypes = [c_longlong, POINTER(c_ubyte), c_longlong]
+lib.push_block.restype  = c_int
 
 def lookup_path(p):
     cur = conn.cursor()
@@ -75,13 +76,16 @@ def lookup_file(path_id):
     return c.lastrowid
 
 def index_doc(doc_id, text):
+    print('Indexing {}'.format(doc_id))
     encoded_text = text.encode('utf-32') # Not specifying byte order will use
                                          # the native byte order, which means
                                          # the C++ lib can read the code points
                                          # directly as uint32_t.
     arr = (c_ubyte * len(encoded_text))()
     for i,c in enumerate(encoded_text): arr[i] = c
-    lib.parse_doc(doc_id, arr, len(arr))
+    print('Calling push_block...')
+    lib.push_block(doc_id, arr, len(arr))
+    print('Done.')
 
 def parse(path):
     path = osp.abspath(path)
@@ -92,7 +96,7 @@ def parse(path):
     else: assert False, 'Invalid path: {}'.format(path)
 
     # Get results from lib
-    lib.get_results()
+    #lib.get_results()
 
 def parse_file(path):
     print(path)
@@ -101,6 +105,7 @@ def parse_file(path):
 
     with conn:
 
+        print('Indexing path')
         path_id = lookup_path(path)
         index_doc(path_id, path)
         s = None
