@@ -1,5 +1,3 @@
-#include "charmap.c"
-
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -11,6 +9,9 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
+#include "charmap.h"
+#include "sqlite3wrapper.h"
 
 using namespace std;
 
