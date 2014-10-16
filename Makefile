@@ -13,7 +13,7 @@ idxbeast.exe: charmap.o idxbeast.o sqlite3.o sqlite3wrapper.o util.o
 sqlite3shell.exe: sqlite3shell.o sqlite3.o
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $+
 
-charmap.o       : charmap.c charmap.h
+charmap.o       : charmap.cpp charmap.h
 idxbeast.o      : idxbeast.cpp charmap.h sqlite3wrapper.h util.h
 sqlite3.o       : sqlite3.c sqlite3.h
 sqlite3shell.o  : sqlite3shell.c sqlite3.h
