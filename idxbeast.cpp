@@ -160,7 +160,22 @@ int get_results()
 
 int main(int argc, char* argv[])
 {
-    cout << "idxbeast" << endl;
-    return 0;
+    try
+    {
+        if (argc <= 1)
+        {
+            cout << "Missing argument." << endl;
+            cout << "Usage: idxbeast.exe [root_dir | file]" << endl;
+            return 1;
+        }
+        REQUIRE(!isdir(argv[1]), "Directory not implemented yet, only single file supported, argument invalid: " << argv[1])
+        REQUIRE(isfile(argv[1]), "File not found: " << argv[1])
+        return 0;
+    }
+    catch (const std::exception& ex)
+    {
+        cout << "Exception:" << endl;
+        cout << ex.what() << endl;
+    }
 }
 
