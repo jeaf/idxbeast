@@ -3,8 +3,6 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -12,14 +10,9 @@
 
 #include "charmap.h"
 #include "sqlite3wrapper.h"
+#include "util.h"
 
 using namespace std;
-
-// This macro implements a sort of assert that will also be enabled in release
-#define REQUIRE(cond, msg) if (!(cond)) {\
-    ostringstream oss; \
-    oss << msg << " @ " << __FUNCTION__ << "(" << __LINE__ << ")"; \
-    throw runtime_error(oss.str());}
 
 // Various typedefs to make things clearer
 typedef int64_t docid_t;
