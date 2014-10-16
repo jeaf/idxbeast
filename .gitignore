@@ -6,5 +6,5 @@
 *.o
 dump.txt
 idxbeast.exe
-sqlite3_shell.exe
+sqlite3shell.exe
 

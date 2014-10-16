@@ -10,7 +10,7 @@ idxbeast.exe: idxbeast.o sqlite3.o
 idxbeast.o: idxbeast.cpp sqlite3.h
 	$(CPP) $(CPPFLAGS) $(SQLITEFLAGS) -c $<
 
-sqlite3_shell.exe: sqlite3_shell.c sqlite3.o
+sqlite3shell.exe: sqlite3shell.c sqlite3.o
 	$(CC) $(CFLAGS) $(SQLITEFLAGS) -o $@ $+
 
 sqlite3.o: sqlite3.c sqlite3.h
@@ -19,4 +19,5 @@ sqlite3.o: sqlite3.c sqlite3.h
 clean:
 	rm -f *.o
 	rm -f sqlite3_shell.exe
+	rm -f idxbeast.exe
 
