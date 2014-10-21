@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <vector>
+#include <windows.h>
 
 #include "charmap.h"
 #include "sqlite3wrapper.h"
@@ -202,10 +204,12 @@ vector<string> tokenize(string s, char delim)
     string cur_tok;
     for (char c: s)
     {
-        cout << "tok: " << c << ", delim: " << delim << endl;
         if (c != delim) cur_tok += c;
-        else tokens.push_back(cur_tok);
-        cur_tok.clear();
+        else if (!cur_tok.empty())
+        {
+            tokens.push_back(cur_tok);
+            cur_tok.clear();
+        }
     }
     if (!cur_tok.empty()) tokens.push_back(cur_tok);
     return tokens;
@@ -215,25 +219,24 @@ int64_t lookup_path(string path)
 {
     auto toks = tokenize(path, '/');
 
-    // debug
-    for (auto x: toks) cout << "t: " << x << endl;
-
     int64_t cur_parent = 1; // 1 is the root
     for (auto tok: toks)
     {
         ostringstream oss;
-        oss << "SELECT id FROM path WHERE name=" << tok;
-        oss << " AND parent=" << cur_parent << ";";
+        oss << "SELECT id FROM path WHERE name='" << tok;
+        oss << "' AND parent=" << cur_parent << ";";
         auto stmt = conn->prepare(oss.str());
         if (stmt->step())
         {
+            cur_parent = stmt->col_int64(0);
         }
         else
         {
             ostringstream oss2;
-            oss2 << "INSERT INTO path(name, parent) VALUES(" << tok;
-            oss2 << ", " << cur_parent << ");";
+            oss2 << "INSERT INTO path(name, parent) VALUES('" << tok;
+            oss2 << "', " << cur_parent << ");";
             conn->exec(oss2.str());
+            cur_parent = conn->lastrowid();
         }
     }
     return cur_parent;
@@ -241,23 +244,19 @@ int64_t lookup_path(string path)
 
 string abspath(string path)
 {
-    //char buf[5000];
-    //char* res = realpath(path.c_str(), buf);
-    //REQUIRE(res, "realpath error: " << errno);
-    //return buf;
-    //char* s = canonicalize_file_name(path.c_str());
-    //string res(s);
-    //free(s);
-    //return res;
-    //char buf[5000];
-    //getcwd(buf, sizeof(buf));
-    //string s(buf);
-    //s += "/";
-    //s += path;
     char buf[5000];
     GetFullPathName(path.c_str(), sizeof(buf), buf, nullptr);
-    realpath();
-    return string(buf);
+    string s;
+    s += tolower(buf[0]);
+    s += buf + 2;
+    string new_s("/cygdrive");
+    auto toks = tokenize(s, '\\');
+    for (auto tok: toks)
+    {
+        new_s += "/";
+        new_s += tok;
+    }
+    return new_s;
 }
 
 int main(int argc, char* argv[])
@@ -274,8 +273,8 @@ int main(int argc, char* argv[])
         cout << "Path: " << path << endl;
         REQUIRE(!isdir(path), "Directory not implemented yet, only single file supported, argument invalid: " << path)
         REQUIRE(isfile(path), "File not found: " << path)
-        //create_tables();
-        //cout << "lookup_path for " << path << ": " << lookup_path(path) << endl;
+        create_tables();
+        cout << "lookup_path for " << path << ": " << lookup_path(path) << endl;
         //index_file(path);
         //dump_index();
         return 0;

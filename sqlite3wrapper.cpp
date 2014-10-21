@@ -9,11 +9,13 @@ namespace sqlite
 {
     Statement::Statement(sqlite3* db, string sql) : stmt(nullptr)
     {
+        cout << "<prepare> " << sql << endl;
         sqlite3_prepare_v2(db, sql.c_str(), sql.size(), &stmt, NULL);
     }
 
     Statement::~Statement()
     {
+        cout << "<finalize>" << endl;
         sqlite3_finalize(stmt);
     }
 
@@ -48,6 +50,7 @@ namespace sqlite
 
     void Connection::exec(string sql)
     {
+        cout << "<exec> " << sql << endl;
         char* errmsg = nullptr;
         sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
         string s = errmsg ? errmsg : "";
@@ -65,6 +68,11 @@ namespace sqlite
         sql += extra;
         sql += ";";
         exec(sql);
+    }
+
+    int64_t Connection::lastrowid()
+    {
+        return sqlite3_last_insert_rowid(db);
     }
 }
 

@@ -35,6 +35,7 @@ namespace sqlite
         std::shared_ptr<Statement> prepare(std::string sql);
         void exec(std::string sql);
         void table(std::string name, std::string cols, std::string extra = "");
+        int64_t lastrowid();
 
     private:
         sqlite3* db;
