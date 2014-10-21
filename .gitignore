@@ -5,6 +5,7 @@
 *.swp
 *.o
 dump.txt
+idxbeast.db
 idxbeast.exe
 sqlite3shell.exe
 
