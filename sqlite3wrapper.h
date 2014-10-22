@@ -11,7 +11,7 @@ namespace sqlite
     class Statement
     {
     public:
-        Statement(sqlite3* db, std::string sql);
+        Statement(sqlite3* db, const std::string& sql);
         ~Statement();
 
         bool step();

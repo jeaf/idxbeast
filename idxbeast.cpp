@@ -1,11 +1,11 @@
 #include <chrono>
-#include <cctype>
 #include <cstdint>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <sstream>
+#include <stdio.h>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -223,40 +223,22 @@ int64_t lookup_path(string path)
     for (auto tok: toks)
     {
         ostringstream oss;
-        oss << "SELECT id FROM path WHERE name='" << tok;
+        oss << "SELECT id FROM path WHERE name='" << tok.c_str();
         oss << "' AND parent=" << cur_parent << ";";
         auto stmt = conn->prepare(oss.str());
-        if (stmt->step())
-        {
-            cur_parent = stmt->col_int64(0);
-        }
+        if (stmt->step()) cur_parent = stmt->col_int64(0);
         else
         {
             ostringstream oss2;
-            oss2 << "INSERT INTO path(name, parent) VALUES('" << tok;
+            oss2 << "INSERT INTO path(name, parent) VALUES('" << tok.c_str();
             oss2 << "', " << cur_parent << ");";
-            conn->exec(oss2.str());
+            auto insert_stmt = conn->prepare(oss2.str());
+            insert_stmt->step();
             cur_parent = conn->lastrowid();
+            REQUIRE(cur_parent != 0, "lastrowid failed: " << cur_parent);
         }
     }
     return cur_parent;
-}
-
-string abspath(string path)
-{
-    char buf[5000];
-    GetFullPathName(path.c_str(), sizeof(buf), buf, nullptr);
-    string s;
-    s += tolower(buf[0]);
-    s += buf + 2;
-    string new_s("/cygdrive");
-    auto toks = tokenize(s, '\\');
-    for (auto tok: toks)
-    {
-        new_s += "/";
-        new_s += tok;
-    }
-    return new_s;
 }
 
 int main(int argc, char* argv[])
@@ -270,13 +252,11 @@ int main(int argc, char* argv[])
             return 1;
         }
         string path = abspath(argv[1]);
-        cout << "Path: " << path << endl;
         REQUIRE(!isdir(path), "Directory not implemented yet, only single file supported, argument invalid: " << path)
         REQUIRE(isfile(path), "File not found: " << path)
         create_tables();
-        cout << "lookup_path for " << path << ": " << lookup_path(path) << endl;
-        //index_file(path);
-        //dump_index();
+        index_file(path);
+        dump_index();
         return 0;
     }
     catch (const std::exception& ex)

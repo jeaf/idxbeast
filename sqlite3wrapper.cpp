@@ -1,3 +1,4 @@
+#include <cstring>
 #include <iostream>
 
 #include "sqlite3wrapper.h"
@@ -7,21 +8,27 @@ using namespace std;
 
 namespace sqlite
 {
-    Statement::Statement(sqlite3* db, string sql) : stmt(nullptr)
+    Statement::Statement(sqlite3* db, const string& sql) : stmt(nullptr)
     {
-        cout << "<prepare> " << sql << endl;
-        sqlite3_prepare_v2(db, sql.c_str(), sql.size(), &stmt, NULL);
+        REQUIRE(sql.size() == strlen(sql.c_str()),
+                "c_str does not return correct string, sql.size(): " << sql.size() <<
+                ", strlen(sql.c_str()): " << strlen(sql.c_str()))
+        REQUIRE(db, "db is null");
+        int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+        REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
+        REQUIRE(stmt, "Error, stmt is null");
     }
 
     Statement::~Statement()
     {
-        cout << "<finalize>" << endl;
         sqlite3_finalize(stmt);
     }
 
     bool Statement::step()
     {
         int res = sqlite3_step(stmt);
+        REQUIRE(res == SQLITE_ROW || res == SQLITE_DONE,
+                "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
         return res == SQLITE_ROW;
     }
 
@@ -50,7 +57,6 @@ namespace sqlite
 
     void Connection::exec(string sql)
     {
-        cout << "<exec> " << sql << endl;
         char* errmsg = nullptr;
         sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
         string s = errmsg ? errmsg : "";
