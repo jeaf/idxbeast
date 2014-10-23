@@ -165,8 +165,37 @@ void dump_index()
     }
 }
 
+int64_t lookup_path(string path)
+{
+    auto toks = tokenize(path, '/');
+
+    int64_t cur_parent = 1; // 1 is the root
+    for (auto tok: toks)
+    {
+        ostringstream oss;
+        oss << "SELECT id FROM path WHERE name='" << tok;
+        oss << "' AND parent=" << cur_parent << ";";
+        auto stmt = conn->prepare(oss.str());
+        if (stmt->step()) cur_parent = stmt->col_int64(0);
+        else
+        {
+            ostringstream oss2;
+            oss2 << "INSERT INTO path(name, parent) VALUES('" << tok;
+            oss2 << "', " << cur_parent << ");";
+            auto insert_stmt = conn->prepare(oss2.str());
+            insert_stmt->step();
+            cur_parent = conn->lastrowid();
+            REQUIRE(cur_parent != 0, "lastrowid failed: " << cur_parent);
+        }
+    }
+    return cur_parent;
+}
+
 void index_file(string path)
 {
+    int64_t path_id = lookup_path(path);
+    cout << "path id: " << path_id << endl;
+
     int docid = 1; // dummy, todo: replace
     ifstream in(path, ios::binary);
     vector<char> block(2, 0);
@@ -196,49 +225,6 @@ void index_file(string path)
             while (it != end && !*charmap[static_cast<uint8_t>(*it)]) ++it;
         }
     }
-}
-
-vector<string> tokenize(string s, char delim)
-{
-    vector<string> tokens;
-    string cur_tok;
-    for (char c: s)
-    {
-        if (c != delim) cur_tok += c;
-        else if (!cur_tok.empty())
-        {
-            tokens.push_back(cur_tok);
-            cur_tok.clear();
-        }
-    }
-    if (!cur_tok.empty()) tokens.push_back(cur_tok);
-    return tokens;
-}
-
-int64_t lookup_path(string path)
-{
-    auto toks = tokenize(path, '/');
-
-    int64_t cur_parent = 1; // 1 is the root
-    for (auto tok: toks)
-    {
-        ostringstream oss;
-        oss << "SELECT id FROM path WHERE name='" << tok.c_str();
-        oss << "' AND parent=" << cur_parent << ";";
-        auto stmt = conn->prepare(oss.str());
-        if (stmt->step()) cur_parent = stmt->col_int64(0);
-        else
-        {
-            ostringstream oss2;
-            oss2 << "INSERT INTO path(name, parent) VALUES('" << tok.c_str();
-            oss2 << "', " << cur_parent << ");";
-            auto insert_stmt = conn->prepare(oss2.str());
-            insert_stmt->step();
-            cur_parent = conn->lastrowid();
-            REQUIRE(cur_parent != 0, "lastrowid failed: " << cur_parent);
-        }
-    }
-    return cur_parent;
 }
 
 int main(int argc, char* argv[])

@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <limits.h>
+#include <memory>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -24,9 +25,25 @@ bool isdir(string path)
 
 string abspath(string path)
 {
-    string s(PATH_MAX, 0);
-    char* res = realpath(path.c_str(), &s[0]);
+    unique_ptr<char, void(*)(void*)> res(realpath(path.c_str(), nullptr), std::free);
     REQUIRE(res, "realpath error: " << errno << ", " << path);
-    return s;
+    return res.get();
+}
+
+vector<string> tokenize(string s, char delim)
+{
+    vector<string> tokens;
+    string cur_tok;
+    for (char c: s)
+    {
+        if (c != delim) cur_tok += c;
+        else if (!cur_tok.empty())
+        {
+            tokens.push_back(cur_tok);
+            cur_tok.clear();
+        }
+    }
+    if (!cur_tok.empty()) tokens.push_back(cur_tok);
+    return tokens;
 }
 
