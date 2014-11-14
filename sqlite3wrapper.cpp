@@ -8,11 +8,8 @@ using namespace std;
 
 namespace sqlite
 {
-    Statement::Statement(sqlite3* db, const string& sql) : stmt(nullptr)
+    Statement::Statement(sqlite3* db, string sql) : stmt(nullptr)
     {
-        REQUIRE(sql.size() == strlen(sql.c_str()),
-                "c_str does not return correct string, sql.size(): " << sql.size() <<
-                ", strlen(sql.c_str()): " << strlen(sql.c_str()))
         REQUIRE(db, "db is null");
         int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
         REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
@@ -37,16 +34,20 @@ namespace sqlite
         return sqlite3_column_int64(stmt, col);
     }
 
+    string Statement::col_text(int col)
+    {
+        const unsigned char* s = sqlite3_column_text(stmt, col);
+        return s ? reinterpret_cast<const char*>(s) : "";
+    }
+
     Connection::Connection(string path) : db(nullptr)
     {
-        cout << "Connecting to database " << path << endl;
         int rc = sqlite3_open(path.c_str(), &db);
         REQUIRE(!rc, "Can't open database: " << sqlite3_errmsg(db))
     }
 
     Connection::~Connection()
     {
-        cout << "Closing connection to database" << endl;
         sqlite3_close_v2(db);
     }
 
@@ -76,9 +77,33 @@ namespace sqlite
         exec(sql);
     }
 
+    int64_t Connection::insert(string table, string values, bool check_rowid)
+    {
+        string sql = fmt("INSERT INTO %s VALUES(%s);", table, values);
+        if (values.empty())
+        {
+            sql = fmt("INSERT INTO %s DEFAULT VALUES;", table);
+        }
+        exec(sql);
+        int64_t rowid = lastrowid();
+        if (check_rowid) REQUIRE(rowid, "Could not get lastrowid")
+        return rowid;
+    }
+
     int64_t Connection::lastrowid()
     {
         return sqlite3_last_insert_rowid(db);
+    }
+
+    Transaction::Transaction(std::shared_ptr<Connection> c) : conn(c)
+    {
+        REQUIRE(c, "Invalid parameter, c is null");
+        conn->exec("BEGIN TRANSACTION");
+    }
+
+    Transaction::~Transaction()
+    {
+        conn->exec("COMMIT");
     }
 }
 

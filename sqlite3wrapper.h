@@ -11,12 +11,13 @@ namespace sqlite
     class Statement
     {
     public:
-        Statement(sqlite3* db, const std::string& sql);
+        Statement(sqlite3* db, std::string sql);
         ~Statement();
 
         bool step();
 
-        int64_t col_int64(int col);
+        int64_t     col_int64(int col);
+        std::string col_text(int col);
 
     private:
         sqlite3_stmt* stmt;
@@ -35,6 +36,7 @@ namespace sqlite
         std::shared_ptr<Statement> prepare(std::string sql);
         void exec(std::string sql);
         void table(std::string name, std::string cols, std::string extra = "");
+        int64_t insert(std::string table, std::string values = "", bool check_rowid = true);
         int64_t lastrowid();
 
     private:
@@ -43,6 +45,20 @@ namespace sqlite
         // Disabled copy constructor and assignment operator
         Connection(const Connection&)            = delete;
         Connection& operator=(const Connection&) = delete;
+    };
+
+    class Transaction
+    {
+    public:
+        Transaction(std::shared_ptr<Connection> c);
+        ~Transaction();
+
+        // Disabled copy constructor and assignment operator
+        Transaction(const Transaction&) = delete;
+        Transaction& operator=(const Transaction&) = delete;
+
+    private:
+        std::shared_ptr<Connection> conn;
     };
 }
 
