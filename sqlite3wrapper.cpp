@@ -1,34 +1,9 @@
-#include <cstring>
-#include <iostream>
-
 #include "sqlite3wrapper.h"
-#include "util.h"
 
 using namespace std;
 
 namespace sqlite
 {
-    Statement::Statement(sqlite3* db, string sql) : stmt(nullptr)
-    {
-        REQUIRE(db, "db is null");
-        int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
-        REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
-        REQUIRE(stmt, "Error, stmt is null");
-    }
-
-    Statement::~Statement()
-    {
-        sqlite3_finalize(stmt);
-    }
-
-    bool Statement::step()
-    {
-        int res = sqlite3_step(stmt);
-        REQUIRE(res == SQLITE_ROW || res == SQLITE_DONE,
-                "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
-        return res == SQLITE_ROW;
-    }
-
     Connection::Connection(string path) : db(nullptr)
     {
         int rc = sqlite3_open(path.c_str(), &db);
@@ -38,11 +13,6 @@ namespace sqlite
     Connection::~Connection()
     {
         sqlite3_close_v2(db);
-    }
-
-    shared_ptr<Statement> Connection::prepare(string sql)
-    {
-        return make_shared<Statement>(db, sql);
     }
 
     void Connection::exec(string sql)

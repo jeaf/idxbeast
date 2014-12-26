@@ -6,15 +6,61 @@
 
 #include "sqlite3.h"
 
+#include "util.h"
+
 namespace sqlite
 {
+    class Connection
+    {
+    public:
+        Connection(std::string path);
+        Connection(const Connection&)            = delete;
+        Connection& operator=(const Connection&) = delete;
+        ~Connection();
+
+        void exec(std::string sql);
+        void table(std::string name, std::string cols, std::string extra = "");
+        int64_t insert(std::string table, std::string values = "", bool check_rowid = true);
+        int64_t lastrowid();
+
+        sqlite3* db;
+    };
+
     class Statement
     {
     public:
-        Statement(sqlite3* db, std::string sql);
-        ~Statement();
+        Statement(sqlite3* db, std::string sql) : stmt(nullptr)
+        {
+            REQUIRE(db, "db is null");
+            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+            REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
+            REQUIRE(stmt, "Error, stmt is null");
+        }
 
-        bool step();
+        Statement(const Statement&)            = delete;
+        Statement& operator=(const Statement&) = delete;
+
+        ~Statement()
+        {
+            sqlite3_finalize(stmt);
+        }
+
+        void reset(sqlite3* db, std::string sql)
+        {
+            sqlite3_finalize(stmt);
+            REQUIRE(db, "db is null");
+            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+            REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
+            REQUIRE(stmt, "Error, stmt is null");
+        }
+
+        bool step()
+        {
+            int res = sqlite3_step(stmt);
+            REQUIRE(res == SQLITE_ROW || res == SQLITE_DONE,
+                    "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
+            return res == SQLITE_ROW;
+        }
 
         template <typename T, int col_idx = 0>
         T col()
@@ -31,30 +77,6 @@ namespace sqlite
 
     private:
         sqlite3_stmt* stmt;
-
-        // Disabled copy constructor and assignment operator
-        Statement(const Statement&)            = delete;
-        Statement& operator=(const Statement&) = delete;
-    };
-
-    class Connection
-    {
-    public:
-        Connection(std::string path);
-        ~Connection();
-
-        std::shared_ptr<Statement> prepare(std::string sql);
-        void exec(std::string sql);
-        void table(std::string name, std::string cols, std::string extra = "");
-        int64_t insert(std::string table, std::string values = "", bool check_rowid = true);
-        int64_t lastrowid();
-
-    private:
-        sqlite3* db;
-
-        // Disabled copy constructor and assignment operator
-        Connection(const Connection&)            = delete;
-        Connection& operator=(const Connection&) = delete;
     };
 
     class Transaction
