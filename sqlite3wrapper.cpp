@@ -29,17 +29,6 @@ namespace sqlite
         return res == SQLITE_ROW;
     }
 
-    int64_t Statement::col_int64(int col)
-    {
-        return sqlite3_column_int64(stmt, col);
-    }
-
-    string Statement::col_text(int col)
-    {
-        const unsigned char* s = sqlite3_column_text(stmt, col);
-        return s ? reinterpret_cast<const char*>(s) : "";
-    }
-
     Connection::Connection(string path) : db(nullptr)
     {
         int rc = sqlite3_open(path.c_str(), &db);

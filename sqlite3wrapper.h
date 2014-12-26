@@ -16,8 +16,18 @@ namespace sqlite
 
         bool step();
 
-        int64_t     col_int64(int col);
-        std::string col_text(int col);
+        template <typename T, int col_idx = 0>
+        T col()
+        {
+            return sqlite3_column_int64(stmt, col_idx);
+        }
+
+        template <typename T, int col_idx = 0>
+        T col_text()
+        {
+            const unsigned char* s = sqlite3_column_text(stmt, col_idx);
+            return s ? reinterpret_cast<const char*>(s) : "";
+        }
 
     private:
         sqlite3_stmt* stmt;
