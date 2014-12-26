@@ -67,8 +67,8 @@ void create_tables()
 
 int64_t lookup_word(string word)
 {
-    sqlite::Statement stmt(conn->db, fmt("SELECT id FROM word WHERE word='%s';", word));
-    if (stmt.step()) return stmt.col<int64_t>();
+    sqlite::Statement<int64_t> stmt(conn->db, fmt("SELECT id FROM word WHERE word='%s';", word));
+    if (stmt.step()) return stmt.col0();
     return conn->insert("word(word)", fmt("'%s'", word));
 }
 
@@ -93,25 +93,25 @@ void dump_index()
 string build_path(int64_t doc_path_id)
 {
     // Find the path object
-    sqlite::Statement stmt(conn->db, fmt("SELECT path FROM doc_path WHERE id=%s", doc_path_id));
-    if (!stmt.step()) REQUIRE(false, "doc_path id not found: " << doc_path_id);
-    int64_t path_id = stmt.col<int64_t>();
+    sqlite::Statement<int64_t> stmt_path(conn->db, fmt("SELECT path FROM doc_path WHERE id=%s", doc_path_id));
+    if (!stmt_path.step()) REQUIRE(false, "doc_path id not found: " << doc_path_id);
+    int64_t path_id = stmt_path.col0();
 
     // Build the path
     string path;
-    stmt.reset(conn->db, fmt("SELECT name, parent FROM path WHERE id=%s;", path_id));
-    if (stmt.step())
+    sqlite::Statement<string, int64_t> stmt_name_parent(conn->db, fmt("SELECT name, parent FROM path WHERE id=%s;", path_id));
+    if (stmt_name_parent.step())
     {
-        string name = stmt.col_text<string>();
-        int64_t parent = stmt.col<int64_t, 1>();
+        string name = stmt_name_parent.col0();
+        int64_t parent = stmt_name_parent.col1();
         while (parent > 0)
         {
             path = string("/") + name + path;
-            stmt.reset(conn->db, fmt("SELECT name, parent FROM path WHERE id=%s;", parent));
-            bool res = stmt.step();
+            stmt_name_parent.reset(conn->db, fmt("SELECT name, parent FROM path WHERE id=%s;", parent));
+            bool res = stmt_name_parent.step();
             REQUIRE(res, "Could not find parent: " << parent);
-            name = stmt.col_text<string>();
-            parent = stmt.col<int64_t, 1>();
+            name = stmt_name_parent.col0();
+            parent = stmt_name_parent.col1();
         }
         return path;
     }
@@ -124,13 +124,13 @@ string build_path(int64_t doc_path_id)
 void search(string word)
 {
     int64_t word_id = lookup_word(word);
-    sqlite::Statement stmt(conn->db, fmt("SELECT doc_id FROM match WHERE word_id=%s", word_id));
+    sqlite::Statement<int64_t> stmt(conn->db, fmt("SELECT doc_id FROM match WHERE word_id=%s", word_id));
     while (stmt.step())
     {
-        int64_t docid = stmt.col<int64_t>();
+        int64_t docid = stmt.col0();
 
         // Get path
-        sqlite::Statement stmt2(conn->db, fmt("SELECT path FROM doc_path WHERE id=%s", docid));
+        sqlite::Statement<int64_t> stmt2(conn->db, fmt("SELECT path FROM doc_path WHERE id=%s", docid));
         if (stmt2.step())
         {
             cout << "Path: " << build_path(docid) << endl;
@@ -140,7 +140,7 @@ void search(string word)
         stmt2.reset(conn->db, fmt("SELECT path FROM doc_file WHERE id=%s", docid));
         if (stmt2.step())
         {
-            cout << "File: " << build_path(stmt2.col<int64_t>()) << endl;
+            cout << "File: " << build_path(stmt2.col0()) << endl;
         }
     }
 }
@@ -150,8 +150,8 @@ int64_t lookup_doc_path(string path)
     int64_t parent = 1; // 1 is the root
     for (auto tok: tokenize(path, '/'))
     {
-        sqlite::Statement stmt(conn->db, fmt("SELECT id FROM path WHERE name='%s' AND parent=%s;", tok, parent));
-        if (stmt.step()) parent = stmt.col<int64_t>();
+        sqlite::Statement<int64_t> stmt(conn->db, fmt("SELECT id FROM path WHERE name='%s' AND parent=%s;", tok, parent));
+        if (stmt.step()) parent = stmt.col0();
         else
         {
             parent = conn->insert("path(name, parent)", fmt("'%s', %s", tok, parent));
@@ -159,8 +159,8 @@ int64_t lookup_doc_path(string path)
     }
 
     // Find or create corresponding doc_path
-    sqlite::Statement stmt(conn->db, fmt("SELECT id FROM doc_path WHERE path=%s", parent));
-    if (stmt.step()) return stmt.col<int64_t>();
+    sqlite::Statement<int64_t> stmt(conn->db, fmt("SELECT id FROM doc_path WHERE path=%s", parent));
+    if (stmt.step()) return stmt.col0();
     int64_t newdoc = conn->insert("doc(type_)", fmt("%s", DOCTYPE_PATH));
     return conn->insert("doc_path(id, path)", fmt("%s, %s", newdoc, parent));
 }
@@ -168,8 +168,8 @@ int64_t lookup_doc_path(string path)
 int64_t lookup_doc_file(int64_t path_id)
 {
     string s = fmt("SELECT id FROM doc_file WHERE path=%s", path_id);
-    sqlite::Statement stmt(conn->db, s);
-    if (stmt.step()) return stmt.col<int64_t>();
+    sqlite::Statement<int64_t> stmt(conn->db, s);
+    if (stmt.step()) return stmt.col0();
     int64_t newdoc = conn->insert("doc(type_)", fmt("%s", DOCTYPE_FILE));
     return conn->insert("doc_file(id, path)", fmt("%s, %s", newdoc, path_id));
 }
