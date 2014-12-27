@@ -54,7 +54,7 @@ namespace sqlite
         return sqlite3_last_insert_rowid(db);
     }
 
-    Transaction::Transaction(std::shared_ptr<Connection> c) : conn(c)
+    Transaction::Transaction(std::shared_ptr<Connection> c) : conn(c), committed_(false)
     {
         REQUIRE(c, "Invalid parameter, c is null");
         conn->exec("BEGIN TRANSACTION");
@@ -62,7 +62,14 @@ namespace sqlite
 
     Transaction::~Transaction()
     {
+        if (!committed_) conn->exec("ROLLBACK");
+    }
+
+    void Transaction::commit()
+    {
+        REQUIRE(!committed_, "Transaction already committed");
         conn->exec("COMMIT");
+        committed_ = true;
     }
 }
 

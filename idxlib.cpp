@@ -87,6 +87,7 @@ void dump_index()
             conn->insert("match(word_id, doc_id, count, avgidx)", fmt("%s, %s, %s, %s", word_id, docid, wc.count, wc.totpos / wc.count), false);
         }
     }
+    transaction.commit();
     cout << "Done." << endl;
 }
 

@@ -107,14 +107,15 @@ namespace sqlite
     {
     public:
         Transaction(std::shared_ptr<Connection> c);
-        ~Transaction();
-
-        // Disabled copy constructor and assignment operator
         Transaction(const Transaction&) = delete;
         Transaction& operator=(const Transaction&) = delete;
+        ~Transaction();
+
+        void commit();
 
     private:
         std::shared_ptr<Connection> conn;
+        bool committed_;
     };
 }
 
