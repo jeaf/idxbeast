@@ -13,32 +13,28 @@
 
 namespace sqlite
 {
-    template <typename T>
-    struct Column
-    {
-        static void get(sqlite3_stmt* stmt, T& out, int col_idx);
-    };
+    template <typename T, int col_idx> struct Column{};
 
-    template <>
-    struct Column<int64_t>
+    template <int col_idx>
+    struct Column<int64_t, col_idx>
     {
-        static void get(sqlite3_stmt* stmt, int64_t& out, int col_idx)
+        int64_t get(sqlite3_stmt* stmt)
         {
-            out = sqlite3_column_int64(stmt, col_idx);
+            return sqlite3_column_int64(stmt, col_idx);
         }
     };
 
-    template <>
-    struct Column<std::string>
+    template <int col_idx>
+    struct Column<std::string, col_idx>
     {
-        static void get(sqlite3_stmt* stmt, std::string& out, int col_idx)
+        std::string get(sqlite3_stmt* stmt)
         {
             const unsigned char* s = sqlite3_column_text(stmt, col_idx);
-            out = s ? reinterpret_cast<const char*>(s) : "";
+            return s ? reinterpret_cast<const char*>(s) : "";
         }
     };
 
-    class NullType;
+    class EmptyType{};
 
     class Connection
     {
@@ -56,16 +52,13 @@ namespace sqlite
         sqlite3* db;
     };
 
-    template <typename T0, typename T1 = NullType>
+    template <typename T0 = EmptyType, typename T1 = EmptyType>
     class Statement
     {
     public:
-        Statement(sqlite3* db, std::string sql) : stmt(nullptr)
+        Statement(sqlite3* db, std::string sql) : stmt_(nullptr)
         {
-            REQUIRE(db, "db is null");
-            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
-            REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
-            REQUIRE(stmt, "Error, stmt is null");
+            reset(db, sql);
         }
 
         Statement(const Statement&)            = delete;
@@ -73,21 +66,21 @@ namespace sqlite
 
         ~Statement()
         {
-            sqlite3_finalize(stmt);
+            sqlite3_finalize(stmt_);
         }
 
         void reset(sqlite3* db, std::string sql)
         {
-            sqlite3_finalize(stmt);
+            sqlite3_finalize(stmt_);
             REQUIRE(db, "db is null");
-            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
+            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_, NULL);
             REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
-            REQUIRE(stmt, "Error, stmt is null");
+            REQUIRE(stmt_, "Error, stmt_ is null");
         }
 
         bool step()
         {
-            int res = sqlite3_step(stmt);
+            int res = sqlite3_step(stmt_);
             REQUIRE(res == SQLITE_ROW || res == SQLITE_DONE,
                     "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
             return res == SQLITE_ROW;
@@ -95,28 +88,19 @@ namespace sqlite
 
         T0 col0()
         {
-            T0 val;
-            Column<T0>::get(stmt, val, 0);
-            return val;
-            //return sqlite3_column_int64(stmt, col_idx);
+            return col0_.get(stmt_);
         }
 
         T1 col1()
         {
-            T1 val;
-            Column<T1>::get(stmt, val, 1);
-            return val;
+            return col1_.get(stmt_);
         }
 
-        //template <typename T, int col_idx = 0>
-        //T col_text()
-        //{
-        //    const unsigned char* s = sqlite3_column_text(stmt, col_idx);
-        //    return s ? reinterpret_cast<const char*>(s) : "";
-        //}
-
     private:
-        sqlite3_stmt* stmt;
+        sqlite3_stmt* stmt_;
+
+        Column<T0, 0> col0_;
+        Column<T1, 1> col1_;
     };
 
     class Transaction
