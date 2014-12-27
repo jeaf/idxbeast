@@ -34,10 +34,10 @@ namespace sqlite
         }
     };
 
-    class EmptyType{};
-
     class Connection
     {
+        template <typename T0, typename T1> friend class Statement;
+
     public:
         Connection(std::string path);
         Connection(const Connection&)            = delete;
@@ -49,16 +49,17 @@ namespace sqlite
         int64_t insert(std::string table, std::string values = "", bool check_rowid = true);
         int64_t lastrowid();
 
+    private:
         sqlite3* db;
     };
 
-    template <typename T0 = EmptyType, typename T1 = EmptyType>
+    template <typename T0 = void, typename T1 = void>
     class Statement
     {
     public:
-        Statement(sqlite3* db, std::string sql) : stmt_(nullptr)
+        Statement(std::shared_ptr<Connection> conn, std::string sql) : conn_(conn), stmt_(nullptr)
         {
-            reset(db, sql);
+            reset(sql);
         }
 
         Statement(const Statement&)            = delete;
@@ -69,11 +70,10 @@ namespace sqlite
             sqlite3_finalize(stmt_);
         }
 
-        void reset(sqlite3* db, std::string sql)
+        void reset(std::string sql)
         {
             sqlite3_finalize(stmt_);
-            REQUIRE(db, "db is null");
-            int res = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_, NULL);
+            int res = sqlite3_prepare_v2(conn_->db, sql.c_str(), -1, &stmt_, NULL);
             REQUIRE(res == SQLITE_OK, "Error: " << sqlite3_errstr(res) << " (" << res << ") sql: " << sql);
             REQUIRE(stmt_, "Error, stmt_ is null");
         }
@@ -97,6 +97,7 @@ namespace sqlite
         }
 
     private:
+        std::shared_ptr<Connection> conn_;
         sqlite3_stmt* stmt_;
 
         Column<T0, 0> col0_;

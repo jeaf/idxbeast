@@ -19,9 +19,12 @@ namespace sqlite
     {
         char* errmsg = nullptr;
         sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
-        string s = errmsg ? errmsg : "";
-        sqlite3_free(errmsg);
-        REQUIRE(s.empty(), s << ", " << sql);
+        if (errmsg)
+        {
+            string s(errmsg);
+            sqlite3_free(errmsg);
+            REQUIRE(false, s << ", " << sql);
+        }
     }
 
     void Connection::table(string name, string cols, string extra)
