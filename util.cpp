@@ -49,23 +49,6 @@ string abspath(string path)
     return res.get();
 }
 
-vector<string> tokenize(string s, char delim)
-{
-    vector<string> tokens;
-    string cur_tok;
-    for (char c: s)
-    {
-        if (c != delim) cur_tok += c;
-        else if (!cur_tok.empty())
-        {
-            tokens.push_back(cur_tok);
-            cur_tok.clear();
-        }
-    }
-    if (!cur_tok.empty()) tokens.push_back(cur_tok);
-    return tokens;
-}
-
 string runcmd(string cmd)
 {
     ScopedPopen pop(cmd);

@@ -149,7 +149,7 @@ void search(string word)
 int64_t lookup_doc_path(string path)
 {
     int64_t parent = 1; // 1 is the root
-    for (auto tok: tokenize(path, '/'))
+    for (auto tok: Tokenizer<'/'>(path).toks)
     {
         sqlite::Statement<int64_t> stmt(conn, fmt("SELECT id FROM path WHERE name='%s' AND parent=%s;", tok, parent));
         if (stmt.step()) parent = stmt.col0();

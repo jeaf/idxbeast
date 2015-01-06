@@ -16,8 +16,29 @@
 bool                     isfile (std::string path);
 bool                     isdir  (std::string path);
 std::string              abspath(std::string path);
-std::vector<std::string> tokenize(std::string s, char delim);
 std::string              runcmd(std::string cmd);
+
+template <char delim>
+class Tokenizer
+{
+public:
+    Tokenizer(std::string s)
+    {
+        std::string cur_tok;
+        for (char c: s)
+        {
+            if (c != delim) cur_tok += c;
+            else if (!cur_tok.empty())
+            {
+                toks.push_back(cur_tok);
+                cur_tok.clear();
+            }
+        }
+        if (!cur_tok.empty()) toks.push_back(cur_tok);
+    }
+
+    std::vector<std::string> toks;
+};
 
 // Iterates on an opened file and yields blocks of bytes
 class FileIterator
