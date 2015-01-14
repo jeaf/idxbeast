@@ -11,26 +11,32 @@
 
 #include "util.h"
 
-namespace sqlite
+namespace idxb { namespace db
 {
-    template <typename T, int col_idx> struct Column{};
+    template <typename T, int col_idx>
+    struct Column
+    {
+        static void get(T&, sqlite3_stmt*)
+        {
+        }
+    };
 
     template <int col_idx>
     struct Column<int64_t, col_idx>
     {
-        int64_t get(sqlite3_stmt* stmt)
+        static void get(int64_t& o_val, sqlite3_stmt* stmt)
         {
-            return sqlite3_column_int64(stmt, col_idx);
+            o_val = sqlite3_column_int64(stmt, col_idx);
         }
     };
 
     template <int col_idx>
     struct Column<std::string, col_idx>
     {
-        std::string get(sqlite3_stmt* stmt)
+        static void get(std::string& o_val, sqlite3_stmt* stmt)
         {
             const unsigned char* s = sqlite3_column_text(stmt, col_idx);
-            return s ? reinterpret_cast<const char*>(s) : "";
+            o_val = s ? reinterpret_cast<const char*>(s) : "";
         }
     };
 
@@ -53,7 +59,9 @@ namespace sqlite
         sqlite3* db;
     };
 
-    template <typename T0 = void, typename T1 = void>
+    class EmptyType {};
+
+    template <typename T0 = EmptyType, typename T1 = EmptyType>
     class Statement
     {
     public:
@@ -83,25 +91,24 @@ namespace sqlite
             int res = sqlite3_step(stmt_);
             REQUIRE(res == SQLITE_ROW || res == SQLITE_DONE,
                     "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
-            return res == SQLITE_ROW;
+            if (res == SQLITE_ROW)
+            {
+                Column<T0, 0>::get(col0, stmt_);
+                Column<T1, 1>::get(col1, stmt_);
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
-        T0 col0()
-        {
-            return col0_.get(stmt_);
-        }
-
-        T1 col1()
-        {
-            return col1_.get(stmt_);
-        }
+        T0 col0;
+        T1 col1;
 
     private:
         std::shared_ptr<Connection> conn_;
         sqlite3_stmt* stmt_;
-
-        Column<T0, 0> col0_;
-        Column<T1, 1> col1_;
     };
 
     class Transaction
@@ -118,7 +125,7 @@ namespace sqlite
         std::shared_ptr<Connection> conn;
         bool committed_;
     };
-}
+}}
 
 #endif
 

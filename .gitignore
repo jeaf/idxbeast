@@ -5,9 +5,10 @@
 *.swp
 *.o
 dump.txt
-idxbeast.db
-idxbeast.exe
-idxbeast.exe.stackdump
+idxb.db
+idxb.exe
+idxb.exe.stackdump
 sandbox.exe
 sqlite3shell.exe
+test.exe
 

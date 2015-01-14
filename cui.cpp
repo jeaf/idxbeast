@@ -1,15 +1,17 @@
 #include <iostream>
 
-#include "idxlib.h"
+#include "core.h"
 #include "util.h"
 
 using namespace std;
+using namespace idxb;
 
 int main(int argc, char* argv[])
 {
     try
     {
-        create_tables();
+        auto conn = make_shared<db::Connection>("idxbeast.db");
+        core::Index idx(conn);
         if (argc <= 2)
         {
             cout << "Missing argument." << endl;
@@ -20,18 +22,18 @@ int main(int argc, char* argv[])
         if (cmd == "index")
         {
             cout << "Indexing..." << endl;
-            string path = abspath(argv[2]);
-            if (isdir(path))
+            string path = util::abspath(argv[2]);
+            if (util::isdir(path))
             {
-                for (auto f: listdir(path)) index_file(f);
+                for (auto f: util::listdir(path)) idx.index_file(f);
             }
-            else if (isfile(path)) index_file(path);
+            else if (util::isfile(path)) idx.index_file(path);
             else REQUIRE(false, "Path not found: " << path)
-            dump_index();
+            idx.commit();
         }
         else if (cmd == "search")
         {
-            search(argv[2]);
+            idx.search(argv[2]);
         }
         else
         {

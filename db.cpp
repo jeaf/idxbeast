@@ -1,8 +1,8 @@
-#include "sqlite3wrapper.h"
+#include "db.h"
 
 using namespace std;
 
-namespace sqlite
+namespace idxb { namespace db
 {
     Connection::Connection(string path) : db(nullptr)
     {
@@ -41,10 +41,10 @@ namespace sqlite
 
     int64_t Connection::insert(string table, string values, bool check_rowid)
     {
-        string sql = fmt("INSERT INTO %s VALUES(%s);", table, values);
+        string sql = util::fmt("INSERT INTO %s VALUES(%s);", table, values);
         if (values.empty())
         {
-            sql = fmt("INSERT INTO %s DEFAULT VALUES;", table);
+            sql = util::fmt("INSERT INTO %s DEFAULT VALUES;", table);
         }
         exec(sql);
         int64_t rowid = lastrowid();
@@ -74,5 +74,5 @@ namespace sqlite
         conn->exec("COMMIT");
         committed_ = true;
     }
-}
+}}
 
