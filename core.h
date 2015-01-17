@@ -1,6 +1,7 @@
 #ifndef IDXLIB_H
 #define IDXLIB_H
 
+#include <iostream>
 #include <string>
 #include <unordered_map>
 
@@ -30,6 +31,7 @@ namespace idxb { namespace core {
 
         void commit();
         void index_file(std::string path);
+        void index_str(std::string s);
         void search(std::string word);
 
     private:

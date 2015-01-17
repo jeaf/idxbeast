@@ -10,20 +10,20 @@ all: idxb.exe sandbox.exe sqlite3shell.exe test.exe
 idxb.exe: charmap.o core.o cui.o db.o sqlite3.o util.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $+
 
-sandbox.exe: sandbox.o util.o
+sandbox.exe: sandbox.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $+
 
 sqlite3shell.exe: sqlite3shell.o sqlite3.o
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $+
 
-test.exe: test.o
+test.exe: charmap.o core.o db.o sqlite3.o test.o util.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $+
 
 charmap.o      : charmap.cpp charmap.h
 core.o         : core.cpp core.h charmap.h db.h util.h
 cui.o          : cui.cpp core.h util.h
 db.o           : db.cpp db.h sqlite3.h util.h
-sandbox.o      : sandbox.cpp util.h
+sandbox.o      : sandbox.cpp
 sqlite3.o      : sqlite3.c sqlite3.h
 sqlite3shell.o : sqlite3shell.c sqlite3.h
 test.o         : test.cpp core.h

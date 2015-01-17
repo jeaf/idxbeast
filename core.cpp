@@ -64,6 +64,7 @@ namespace idxb { namespace core
         // Index the doc_file
         int64_t docid = lookup_doc_file(doc_path_id);
         ifstream in(path, ios::binary);
+        REQUIRE(in.good(), "Could not open file " << path);
         util::FileIterator fi_begin(&in, 16384);
         util::FileIterator fi_end(nullptr, 0);
         index_blocks(docid, fi_begin, fi_end);
@@ -106,7 +107,7 @@ namespace idxb { namespace core
         conn->table("doc_file", "id INTEGER PRIMARY KEY, path INTEGER NOT NULL UNIQUE");
 
         // Each indexed word appears only once in the DB in that table
-        conn->table("word", "id INTEGER PRIMARY KEY, word UNIQUE");
+        conn->table("word", "id INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE");
 
         // This table joins word and doc
         conn->table("match", "word_id INTEGER, doc_id INTEGER, count INTEGER NOT NULL, avgidx INTEGER NOT NULL, PRIMARY KEY(word_id, doc_id)", "WITHOUT ROWID");

@@ -2,6 +2,7 @@
 #define UTIL_H
 
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <sstream>
 #include <string>
@@ -51,6 +52,7 @@ namespace idxb { namespace util
                                                          , block_size(block_size)
                                                          , finished(!fin)
         {
+            if (!finished) read_block();
         }
         bool operator!=(const FileIterator& other) const
         {
@@ -58,18 +60,24 @@ namespace idxb { namespace util
         }
         FileIterator& operator++()
         {
-            REQUIRE(in_stream, "in_stream is null");
-            block.resize(block_size);
-            in_stream->read(block.data(), block.size());
-            block.resize(in_stream->gcount());
-            if (!(*in_stream)) finished = true;
+            read_block();
             return *this;
         }
         std::vector<char>* operator->()
         {
+            REQUIRE(!finished, "Using invalid iterator");
             return &block;
         }
     private:
+        void read_block()
+        {
+            REQUIRE(in_stream, "in_stream is null");
+            block.resize(block_size);
+            in_stream->read(block.data(), block.size());
+            block.resize(in_stream->gcount());
+            if (block.empty()) finished = true;
+        }
+
         std::ifstream*    in_stream;
         std::vector<char> block;
         int               block_size;
