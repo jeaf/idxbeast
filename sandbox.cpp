@@ -21,17 +21,17 @@ struct TypeList
 };
 
 
-template <typename TL, int I> struct TypeAt;
+template <int I, typename TL> struct TypeAt;
 template <typename H, typename T>
-struct TypeAt<TypeList<H, T>, 0>
+struct TypeAt<0, TypeList<H, T>>
 {
     typedef H type;
 };
-template <typename H, typename T, int I>
-struct TypeAt<TypeList<H, T>, I>
+template <int I, typename H, typename T>
+struct TypeAt<I, TypeList<H, T>>
 {
     static_assert(!is_same<T, NullType>::value, "Invalid TypeAt index");
-    typedef typename TypeAt<T, I - 1>::type type;
+    typedef typename TypeAt<I - 1, T>::type type;
 };
 
 template <typename TL> struct Length;
@@ -67,9 +67,9 @@ template <typename TL>
 struct Stmt : Col<0, TL>
 {
     template <int I>
-    typename TypeAt<TL, I>::type get()
+    typename TypeAt<I, TL>::type get()
     {
-        typedef typename TypeAt<TL, I>::type RetType;
+        typedef typename TypeAt<I, TL>::type RetType;
         return Col<0, TL>::template get<RetType>(Int2Type<I>());
     }
 };
