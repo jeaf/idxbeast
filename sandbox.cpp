@@ -45,8 +45,8 @@ struct Length<TypeList<H, T>>
     enum { value = 1 + Length<T>::value };
 };
 
-template <typename TL, int I = 0>
-struct Col : Col<typename TL::tail, I + 1>
+template <int I, typename TL>
+struct Col : Col<I + 1, typename TL::tail>
 {
     template <typename R>
     R get(Int2Type<I>)
@@ -57,20 +57,20 @@ struct Col : Col<typename TL::tail, I + 1>
     template <typename R, int J>
     R get(Int2Type<J> tag)
     {
-        return Col<typename TL::tail, I + 1>::template get<R>(tag);
+        return Col<I + 1, typename TL::tail>::template get<R>(tag);
     }
 };
 
-template <int I> struct Col<NullType, I> {};
+template <int I> struct Col<I, NullType> {};
 
 template <typename TL>
-struct Stmt : Col<TL>
+struct Stmt : Col<0, TL>
 {
     template <int I>
     typename TypeAt<TL, I>::type get()
     {
         typedef typename TypeAt<TL, I>::type RetType;
-        return Col<TL>::template get<RetType>(Int2Type<I>());
+        return Col<0, TL>::template get<RetType>(Int2Type<I>());
     }
 };
 
