@@ -24,20 +24,11 @@ struct TypeAt<I> { static_assert(I < 0, "TypeAt index out of bounds"); };
 template <int I, typename T>
 struct ColGetter { static_assert(I < 0, "Unsupported type"); };
 template <int I>
-struct ColGetter<I, int64_t>
-{
-    static int64_t get() { return 3; }
-};
+struct ColGetter<I, int64_t> { static int64_t get() { return 3; } };
 template <int I>
-struct ColGetter<I, double>
-{
-    static double get() { return 999.111; }
-};
+struct ColGetter<I, double> { static double get() { return 999.111; } };
 template <int I>
-struct ColGetter<I, string>
-{
-    static string get() { return "abc"; }
-};
+struct ColGetter<I, string> { static string get() { return "abc"; } };
 
 template <int I, typename... Ts> struct Col {};
 template <int I, typename H, typename... Ts>
