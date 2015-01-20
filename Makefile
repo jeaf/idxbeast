@@ -1,6 +1,6 @@
 CC          = gcc
 SQLITEFLAGS = -DSQLITE_THREADSAFE=0 -DSQLITE_TEMP_STORE=3
-CPPFLAGS    = -Wall $(SQLITEFLAGS)
+CPPFLAGS    = -Wall -Wno-multichar $(SQLITEFLAGS)
 CFLAGS      =
 CXXFLAGS    = -std=gnu++11
 
