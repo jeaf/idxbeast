@@ -1,3 +1,10 @@
+// todo: check that column IDs are unique (whether they are types of ints)
+// todo: use types instead of ints for column ids, and check if template
+//       overload works to detect get<0> (use col idx), get<col_id_type> (use
+//       col id)
+// todo: create traits class for Sqlite (e.g., SqliteTraits) to keeps pointers
+//       to functions for each type, e.g., sqlite_column_int, sqlite_bind_int,
+//       etc.
 #include <fstream>
 #include <iostream>
 #include <string>
