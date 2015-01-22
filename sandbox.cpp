@@ -90,11 +90,11 @@ struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
 template <typename... Ts>
 struct ColSpec : Col<0, Ts...>
 {
-    template <int ColDefId>
-    typename ColDefLookup<ColDefId, Ts...>::result::type get()
+    template <int ColTag>
+    typename ColDefLookup<ColTag, Ts...>::result::type get()
     {
-        typedef typename ColDefLookup<ColDefId, Ts...>::result::type RetType;
-        return Col<0, Ts...>::template get<RetType>(integral_constant<int, ColDefId>());
+        typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
+        return Col<0, Ts...>::template get<RetType>(integral_constant<int, ColTag>());
     }
 
     template <int ColIdx>
