@@ -46,20 +46,24 @@ struct SqliteCol<I, string> { static string get() { return "abc"; } };
 //////////////////////////////////////////////////////////////////////////////
 // ColDef
 //////////////////////////////////////////////////////////////////////////////
-template <int I, typename T>
-struct ColDef : integral_constant<int, I> { typedef T type; };
+template <typename Tag, typename Type>
+struct ColDef
+{
+    typedef Tag  tag;
+    typedef Type type;
+};
 
-template <int I, typename... Ts> struct ColDefLookup;
-template <int I, typename H, typename... Ts>
-struct ColDefLookup<I, H, Ts...>
+template <typename Tag, typename... Ts> struct ColDefLookup;
+template <typename Tag, typename H, typename... Ts>
+struct ColDefLookup<Tag, H, Ts...>
 {
     typedef typename
-        conditional<I == H::value,
+        conditional<is_same<Tag, typename H::tag>::value,
                     H,
-                    typename ColDefLookup<I, Ts...>::result
+                    typename ColDefLookup<Tag, Ts...>::result
                    >::type result;
 };
-template <int I> struct ColDefLookup<I>
+template <typename Tag> struct ColDefLookup<Tag>
 {
     typedef struct ErrorColDefNotFound result;
 };
@@ -72,13 +76,13 @@ template <int ColIdx, typename H, typename... Ts>
 struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
 {
     template <typename R>
-    R get(integral_constant<int, H::value>)
+    R get(typename H::tag)
     {
         return SqliteCol<ColIdx, R>::get();
     }
 
-    template <typename R, int J>
-    R get(integral_constant<int, J> tag)
+    template <typename R, typename T>
+    R get(T tag)
     {
         return Col<ColIdx + 1, Ts...>::template get<R>(tag);
     }
@@ -90,11 +94,11 @@ struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
 template <typename... Ts>
 struct ColSpec : Col<0, Ts...>
 {
-    template <int ColTag>
+    template <typename ColTag>
     typename ColDefLookup<ColTag, Ts...>::result::type get()
     {
         typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
-        return Col<0, Ts...>::template get<RetType>(integral_constant<int, ColTag>());
+        return Col<0, Ts...>::template get<RetType>(ColTag());
     }
 
     template <int ColIdx>
@@ -102,7 +106,7 @@ struct ColSpec : Col<0, Ts...>
     {
         typedef typename TypeAt<ColIdx, Ts...>::type ColDefType;
         typedef typename ColDefType::type RetType;
-        return Col<0, Ts...>::template get<RetType>(integral_constant<int, ColDefType::value>());
+        return Col<0, Ts...>::template get<RetType>(typename ColDefType::tag());
     }
 };
 
@@ -119,18 +123,19 @@ struct Stmt : Spec1
 //////////////////////////////////////////////////////////////////////////////
 int main()
 {
-    Stmt<ColSpec<ColDef<'c1'  , int64_t>,
-                 ColDef<'c2'  , double >,
-                 ColDef<'test', string >,
-                 ColDef<'alfa', int64_t>>> s;
+    struct c1{}; struct c2{}; struct test{}; struct alfa{}; struct x1{}; struct x2{};
 
-    cout << "c1: "   << s.get<'c1'>()   << endl;
-    cout << "c2: "   << s.get<'c2'>()   << endl;
-    cout << "test: " << s.get<'test'>() << endl;
-    cout << "alfa: " << s.get<'alfa'>() << endl;
+    Stmt<ColSpec<ColDef<c1  , int64_t>,
+                 ColDef<c2  , double >,
+                 ColDef<test, string >,
+                 ColDef<alfa, int64_t>>> s;
+
+    cout << "c1: "   << s.get<c1>()   << endl;
+    cout << "c2: "   << s.get<c2>()   << endl;
+    cout << "test: " << s.get<test>() << endl;
+    cout << "alfa: " << s.get<alfa>() << endl;
     cout << endl;
 
-    enum ColIds {x1, x2};
     Stmt<ColSpec<ColDef<x1, int64_t>,
                  ColDef<x2, double >>> s2;
 
