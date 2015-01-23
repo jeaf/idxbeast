@@ -24,10 +24,11 @@ const int64_t DOCTYPE_FILE = 20;
 namespace
 {
     // Tags used to identify columns
-    struct id; struct path_id; struct name; struct parent;
+    struct id; struct docid; struct path_id; struct name; struct parent;
 
     // Useful typedefs for statements
-    typedef Statement<ColSpec<ColDef<id, int64_t>>> Statement_id;
+    typedef Statement<ColSpec<ColDef<id   , int64_t>>> Statement_id;
+    typedef Statement<ColSpec<ColDef<docid, int64_t>>> Statement_docid;
 }
 
 namespace idxb { namespace core
@@ -87,20 +88,20 @@ namespace idxb { namespace core
     void Index::search(string word)
     {
         int64_t word_id = lookup_word(word);
-        Statement_id stmt(conn,
+        Statement_docid stmt(conn,
             util::fmt("SELECT doc_id FROM match WHERE word_id=%s", word_id));
         while (stmt.step())
         {
             // Get path
             Statement_id stmt2(conn,
-                util::fmt("SELECT path FROM doc_path WHERE id=%s", stmt.col<0>()));
+                util::fmt("SELECT path FROM doc_path WHERE id=%s", stmt.col<docid>()));
             if (stmt2.step())
             {
-                cout << "Path: " << build_path(stmt.col<0>()) << endl;
+                cout << "Path: " << build_path(stmt.col<docid>()) << endl;
             }
 
             // Get file
-            stmt2.reset(util::fmt("SELECT path FROM doc_file WHERE id=%s", stmt.col<0>()));
+            stmt2.reset(util::fmt("SELECT path FROM doc_file WHERE id=%s", stmt.col<docid>()));
             if (stmt2.step())
             {
                 cout << "File: " << build_path(stmt2.col<0>()) << endl;
