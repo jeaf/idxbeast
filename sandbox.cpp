@@ -1,7 +1,4 @@
-// todo: check that column IDs are unique (whether they are types of ints)
-// todo: use types instead of ints for column ids, and check if template
-//       overload works to detect get<0> (use col idx), get<col_id_type> (use
-//       col id)
+// todo: check that column tags are unique
 // todo: create traits class for Sqlite (e.g., SqliteTraits) to keeps pointers
 //       to functions for each type, e.g., sqlite_column_int, sqlite_bind_int,
 //       etc.
@@ -76,15 +73,15 @@ template <int ColIdx, typename H, typename... Ts>
 struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
 {
     template <typename R>
-    R get(typename H::tag)
+    R col(typename H::tag*)
     {
         return SqliteCol<ColIdx, R>::get();
     }
 
     template <typename R, typename T>
-    R get(T tag)
+    R col(T* tag)
     {
-        return Col<ColIdx + 1, Ts...>::template get<R>(tag);
+        return Col<ColIdx + 1, Ts...>::template col<R>(tag);
     }
 };
 
@@ -95,26 +92,62 @@ template <typename... Ts>
 struct ColSpec : Col<0, Ts...>
 {
     template <typename ColTag>
-    typename ColDefLookup<ColTag, Ts...>::result::type get()
+    typename ColDefLookup<ColTag, Ts...>::result::type col()
     {
         typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
-        return Col<0, Ts...>::template get<RetType>(ColTag());
+        return Col<0, Ts...>::template col<RetType>(static_cast<ColTag*>(nullptr));
     }
 
     template <int ColIdx>
-    typename TypeAt<ColIdx, Ts...>::type::type get_bycol()
+    typename TypeAt<ColIdx, Ts...>::type::type col()
     {
         typedef typename TypeAt<ColIdx, Ts...>::type ColDefType;
         typedef typename ColDefType::type RetType;
-        return Col<0, Ts...>::template get<RetType>(typename ColDefType::tag());
+        return Col<0, Ts...>::template col<RetType>(static_cast<typename ColDefType::tag*>(nullptr));
+    }
+};
+
+//////////////////////////////////////////////////////////////////////////////
+// Bind
+//////////////////////////////////////////////////////////////////////////////
+template <int I, typename... Ts> struct Bind{};
+template <int I, typename H, typename... Ts>
+struct Bind<I, H, Ts...> : Bind<I + 1, Ts...>
+{
+    template <typename T>
+    void bind(integral_constant<int, I>, T val)
+    {
+        cout << "bind: " << val << endl;
+        //return SqliteCol<ColIdx, R>::get();
+    }
+
+    template <typename T, int Idx>
+    void bind(integral_constant<int, Idx> col_idx, T val)
+    {
+        Bind<I + 1, Ts...>::template bind<T>(col_idx, val);
+    }
+};
+
+//////////////////////////////////////////////////////////////////////////////
+// BindSpec
+//////////////////////////////////////////////////////////////////////////////
+template <typename... Ts>
+struct BindSpec : Bind<0, Ts...>
+{
+    template <int I>
+    void bind(typename TypeAt<I, Ts...>::type val)
+    {
+        Bind<0, Ts...>::template bind<typename TypeAt<I, Ts...>::type>(
+            integral_constant<int, I>(), val);
     }
 };
 
 //////////////////////////////////////////////////////////////////////////////
 // Stmt
 //////////////////////////////////////////////////////////////////////////////
-template <typename Spec1>
-struct Stmt : Spec1
+struct EmptyType {};
+template <typename Spec1 = EmptyType, typename Spec2 = EmptyType>
+struct Stmt : Spec1, Spec2
 {
 };
 
@@ -123,31 +156,34 @@ struct Stmt : Spec1
 //////////////////////////////////////////////////////////////////////////////
 int main()
 {
-    struct c1{}; struct c2{}; struct test{}; struct alfa{}; struct x1{}; struct x2{};
+    struct c1; struct c2; struct test; struct alfa; struct x1; struct x2;
 
     Stmt<ColSpec<ColDef<c1  , int64_t>,
                  ColDef<c2  , double >,
                  ColDef<test, string >,
                  ColDef<alfa, int64_t>>> s;
 
-    cout << "c1: "   << s.get<c1>()   << endl;
-    cout << "c2: "   << s.get<c2>()   << endl;
-    cout << "test: " << s.get<test>() << endl;
-    cout << "alfa: " << s.get<alfa>() << endl;
+    cout << "c1: "   << s.col<c1>()   << endl;
+    cout << "c2: "   << s.col<c2>()   << endl;
+    cout << "test: " << s.col<test>() << endl;
+    cout << "alfa: " << s.col<alfa>() << endl;
     cout << endl;
 
     Stmt<ColSpec<ColDef<x1, int64_t>,
                  ColDef<x2, double >>> s2;
 
-    cout << "x1: "   << s2.get<x1>()      << endl;
-    cout << "x2: "   << s2.get<x2>()      << endl;
-    cout << "col1: " << s2.get_bycol<1>() << endl;
-    cout << "col0: " << s2.get_bycol<0>() << endl;
+    cout << "x1: "   << s2.col<x1>()      << endl;
+    cout << "x2: "   << s2.col<x2>()      << endl;
+    cout << "col1: " << s2.col<1>() << endl;
+    cout << "col0: " << s2.col<0>() << endl;
     cout << endl;
 
-    Stmt<ColSpec<ColDef<x1, int64_t>,
-                 ColDef<x2, double >>> t;
-    cout << t.get<x1>() << endl;
+    Stmt<ColSpec <ColDef<x1, int64_t>>,
+         BindSpec<double, int>
+        > s3;
+    s3.bind<0>(123.456);
+    s3.bind<1>(888);
+    cout << s3.col<x1>() << endl;
 
     return 0;
 }
