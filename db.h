@@ -11,35 +11,162 @@
 
 #include "util.h"
 
+using namespace std;
+using namespace idxb::util;
+
 namespace idxb { namespace db
 {
-    template <typename T, int col_idx>
-    struct Column
+    ///////////////////////////////////////////////////////////////////////////
+    // SqliteTraits
+    ///////////////////////////////////////////////////////////////////////////
+    template <typename T, int I = 0> struct SqliteTraits
     {
-        static void get(T&, sqlite3_stmt*)
+        static T col(sqlite3_stmt*)
+            {static_assert(I!=I, "Unsupported type");}
+        static void bind(sqlite3_stmt*, T)
+            {static_assert(I!=I, "Unsupported type");}
+    };
+
+    template <int I> struct SqliteTraits<int64_t, I>
+    {
+        static int64_t col(sqlite3_stmt* stmt)
         {
+            return sqlite3_column_int64(stmt, I);
+        }
+        static void bind(sqlite3_stmt* stmt, int64_t val)
+        {
+            int res = sqlite3_bind_int64(stmt, I, val);
+            REQUIRE(res == SQLITE_OK, "error: " << res);
         }
     };
 
-    template <int col_idx>
-    struct Column<int64_t, col_idx>
+    template <int I> struct SqliteTraits<string, I>
     {
-        static void get(int64_t& o_val, sqlite3_stmt* stmt)
+        static string col(sqlite3_stmt* stmt)
         {
-            o_val = sqlite3_column_int64(stmt, col_idx);
+            const unsigned char* s = sqlite3_column_text(stmt, I);
+            return s ? reinterpret_cast<const char*>(s) : "";
+        }
+        static void bind(sqlite3_stmt* stmt, string val)
+        {
+            int res = sqlite3_bind_text(stmt, I, val.c_str(), -1, SQLITE_TRANSIENT);
+            REQUIRE(res == SQLITE_OK, "error: " << res);
         }
     };
 
-    template <int col_idx>
-    struct Column<std::string, col_idx>
+    ///////////////////////////////////////////////////////////////////////////
+    // SqliteStmtHolder
+    ///////////////////////////////////////////////////////////////////////////
+    struct SqliteStmtHolder
     {
-        static void get(std::string& o_val, sqlite3_stmt* stmt)
+    protected:
+        sqlite3_stmt* stmt_;
+    };
+
+    //////////////////////////////////////////////////////////////////////////////
+    // ColDef
+    //////////////////////////////////////////////////////////////////////////////
+    template <typename Tag, typename Type>
+    struct ColDef
+    {
+        typedef Tag  tag;
+        typedef Type type;
+    };
+
+    template <typename Tag, typename... Ts> struct ColDefLookup;
+    template <typename Tag, typename H, typename... Ts>
+    struct ColDefLookup<Tag, H, Ts...>
+    {
+        typedef typename
+            conditional<is_same<Tag, typename H::tag>::value,
+                        H,
+                        typename ColDefLookup<Tag, Ts...>::result
+                       >::type result;
+    };
+    template <typename Tag> struct ColDefLookup<Tag>
+    {
+        typedef struct ErrorColDefNotFound result;
+    };
+
+    //////////////////////////////////////////////////////////////////////////////
+    // Col
+    //////////////////////////////////////////////////////////////////////////////
+    template <int ColIdx, typename... Ts> struct Col{};
+    template <int ColIdx, typename H, typename... Ts>
+    struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
+    {
+        template <typename R>
+        R col(sqlite3_stmt* stmt, typename H::tag*)
         {
-            const unsigned char* s = sqlite3_column_text(stmt, col_idx);
-            o_val = s ? reinterpret_cast<const char*>(s) : "";
+            return SqliteTraits<R, ColIdx>::col(stmt);
+        }
+
+        template <typename R, typename T>
+        R col(sqlite3_stmt* stmt, T* tag)
+        {
+            return Col<ColIdx + 1, Ts...>::template col<R>(stmt, tag);
         }
     };
 
+    //////////////////////////////////////////////////////////////////////////////
+    // ColSpec
+    //////////////////////////////////////////////////////////////////////////////
+    template <typename... Ts>
+    struct ColSpec : Col<0, Ts...>, virtual SqliteStmtHolder
+    {
+        template <typename ColTag>
+        typename ColDefLookup<ColTag, Ts...>::result::type col()
+        {
+            typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
+            return Col<0, Ts...>::template col<RetType>(stmt_, static_cast<ColTag*>(nullptr));
+        }
+
+        template <int ColIdx>
+        typename TypeAt<ColIdx, Ts...>::type::type col()
+        {
+            typedef typename TypeAt<ColIdx, Ts...>::type ColDefType;
+            typedef typename ColDefType::type RetType;
+            return Col<0, Ts...>::template col<RetType>(stmt_, static_cast<typename ColDefType::tag*>(nullptr));
+        }
+    };
+
+    //////////////////////////////////////////////////////////////////////////////
+    // Bind
+    //////////////////////////////////////////////////////////////////////////////
+    template <int I, typename... Ts> struct Bind{};
+    template <int I, typename H, typename... Ts>
+    struct Bind<I, H, Ts...> : Bind<I + 1, Ts...>
+    {
+        template <typename T>
+        void bind(sqlite3_stmt* stmt, integral_constant<int, I>, T val)
+        {
+            SqliteTraits<T, I>::bind(stmt, val);
+        }
+
+        template <typename T, int Idx>
+        void bind(sqlite3_stmt* stmt, integral_constant<int, Idx> col_idx, T val)
+        {
+            Bind<I + 1, Ts...>::template bind<T>(stmt, col_idx, val);
+        }
+    };
+
+    //////////////////////////////////////////////////////////////////////////////
+    // BindSpec
+    //////////////////////////////////////////////////////////////////////////////
+    template <typename... Ts>
+    struct BindSpec : Bind<0, Ts...>, virtual SqliteStmtHolder
+    {
+        template <int I>
+        void bind(typename TypeAt<I, Ts...>::type val)
+        {
+            Bind<0, Ts...>::template bind<typename TypeAt<I, Ts...>::type>(
+                stmt_, integral_constant<int, I>(), val);
+        }
+    };
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Connection
+    ///////////////////////////////////////////////////////////////////////////
     class Connection
     {
         template <typename T0, typename T1> friend class Statement;
@@ -59,14 +186,16 @@ namespace idxb { namespace db
         sqlite3* db;
     };
 
-    class EmptyType {};
-
-    template <typename T0 = EmptyType, typename T1 = EmptyType>
-    class Statement
+    ///////////////////////////////////////////////////////////////////////////
+    // Statement
+    ///////////////////////////////////////////////////////////////////////////
+    template <typename Spec1 = EmptyType, typename Spec2 = EmptyType>
+    class Statement : public Spec1, public Spec2, virtual SqliteStmtHolder
     {
     public:
-        Statement(std::shared_ptr<Connection> conn, std::string sql) : conn_(conn), stmt_(nullptr)
+        Statement(std::shared_ptr<Connection> conn, std::string sql) : conn_(conn)
         {
+            stmt_ = nullptr;
             reset(sql);
         }
 
@@ -93,8 +222,6 @@ namespace idxb { namespace db
                     "sqlite3_step failed: " << sqlite3_errstr(res) << " (" << res << ")");
             if (res == SQLITE_ROW)
             {
-                Column<T0, 0>::get(col0, stmt_);
-                Column<T1, 1>::get(col1, stmt_);
                 return true;
             }
             else
@@ -103,14 +230,13 @@ namespace idxb { namespace db
             }
         }
 
-        T0 col0;
-        T1 col1;
-
     private:
         std::shared_ptr<Connection> conn_;
-        sqlite3_stmt* stmt_;
     };
 
+    ///////////////////////////////////////////////////////////////////////////
+    // Transaction
+    ///////////////////////////////////////////////////////////////////////////
     class Transaction
     {
     public:

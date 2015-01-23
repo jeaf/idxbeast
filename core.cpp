@@ -16,13 +16,23 @@
 #include "util.h"
 
 using namespace std;
+using namespace idxb::db;
 
 const int64_t DOCTYPE_PATH = 10;
 const int64_t DOCTYPE_FILE = 20;
 
+namespace
+{
+    // Tags used to identify columns
+    struct id; struct path_id; struct name; struct parent;
+
+    // Useful typedefs for statements
+    typedef Statement<ColSpec<ColDef<id, int64_t>>> Statement_id;
+}
+
 namespace idxb { namespace core
 {
-    Index::Index(shared_ptr<db::Connection> i_conn) : conn(i_conn)
+    Index::Index(shared_ptr<Connection> i_conn) : conn(i_conn)
     {
         create_tables();
     }
@@ -30,7 +40,7 @@ namespace idxb { namespace core
     void Index::commit()
     {
         cout << "Dumping index..." << endl;
-        db::Transaction transaction(conn);
+        Transaction transaction(conn);
         for (auto word_it = words.begin(); word_it != words.end(); ++word_it)
         {
             string word     = word_it->first;
@@ -77,21 +87,23 @@ namespace idxb { namespace core
     void Index::search(string word)
     {
         int64_t word_id = lookup_word(word);
-        db::Statement<int64_t> stmt(conn, util::fmt("SELECT doc_id FROM match WHERE word_id=%s", word_id));
+        Statement_id stmt(conn,
+            util::fmt("SELECT doc_id FROM match WHERE word_id=%s", word_id));
         while (stmt.step())
         {
             // Get path
-            db::Statement<int64_t> stmt2(conn, util::fmt("SELECT path FROM doc_path WHERE id=%s", stmt.col0));
+            Statement_id stmt2(conn,
+                util::fmt("SELECT path FROM doc_path WHERE id=%s", stmt.col<0>()));
             if (stmt2.step())
             {
-                cout << "Path: " << build_path(stmt.col0) << endl;
+                cout << "Path: " << build_path(stmt.col<0>()) << endl;
             }
 
             // Get file
-            stmt2.reset(util::fmt("SELECT path FROM doc_file WHERE id=%s", stmt.col0));
+            stmt2.reset(util::fmt("SELECT path FROM doc_file WHERE id=%s", stmt.col<0>()));
             if (stmt2.step())
             {
-                cout << "File: " << build_path(stmt2.col0) << endl;
+                cout << "File: " << build_path(stmt2.col<0>()) << endl;
             }
         }
     }
@@ -121,28 +133,29 @@ namespace idxb { namespace core
 
     int64_t Index::lookup_word(string word)
     {
-        db::Statement<int64_t> stmt(conn, util::fmt("SELECT id FROM word WHERE word='%s';", word));
-        if (stmt.step()) return stmt.col0;
+        Statement_id stmt(conn, util::fmt("SELECT id FROM word WHERE word='%s';", word));
+        if (stmt.step()) return stmt.col<0>();
         return conn->insert("word(word)", util::fmt("'%s'", word));
     }
 
     string Index::build_path(int64_t doc_path_id)
     {
         // Find the path object
-        db::Statement<int64_t> stmt_path(conn, util::fmt("SELECT path FROM doc_path WHERE id=%s", doc_path_id));
+        Statement_id stmt_path(conn, util::fmt("SELECT path FROM doc_path WHERE id=%s", doc_path_id));
         if (!stmt_path.step()) REQUIRE(false, "doc_path id not found: " << doc_path_id);
 
         // Build the path
         string path;
-        db::Statement<string, int64_t> stmt_name_parent(conn, util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_path.col0));
+        Statement<ColSpec<ColDef<name, string>, ColDef<parent, int64_t>>>
+            stmt_name_parent(conn, util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_path.col<0>()));
         if (stmt_name_parent.step())
         {
-            while (stmt_name_parent.col1 > 0)
+            while (stmt_name_parent.col<parent>() > 0)
             {
-                path = string("/") + stmt_name_parent.col0 + path;
-                stmt_name_parent.reset(util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_name_parent.col1));
+                path = string("/") + stmt_name_parent.col<name>() + path;
+                stmt_name_parent.reset(util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_name_parent.col<parent>()));
                 bool res = stmt_name_parent.step();
-                REQUIRE(res, "Could not find parent: " << stmt_name_parent.col1);
+                REQUIRE(res, "Could not find parent: " << stmt_name_parent.col<parent>());
             }
             return path;
         }
@@ -154,8 +167,8 @@ namespace idxb { namespace core
         int64_t parent = 1; // 1 is the root
         for (auto tok: util::Tokenizer<'/'>(path).toks)
         {
-            db::Statement<int64_t> stmt(conn, util::fmt("SELECT id FROM path WHERE name='%s' AND parent=%s;", tok, parent));
-            if (stmt.step()) parent = stmt.col0;
+            Statement_id stmt(conn, util::fmt("SELECT id FROM path WHERE name='%s' AND parent=%s;", tok, parent));
+            if (stmt.step()) parent = stmt.col<id>();
             else
             {
                 parent = conn->insert("path(name, parent)", util::fmt("'%s', %s", tok, parent));
@@ -163,8 +176,8 @@ namespace idxb { namespace core
         }
 
         // Find or create corresponding doc_path
-        db::Statement<int64_t> stmt(conn, util::fmt("SELECT id FROM doc_path WHERE path=%s", parent));
-        if (stmt.step()) return stmt.col0;
+        Statement_id stmt(conn, util::fmt("SELECT id FROM doc_path WHERE path=%s", parent));
+        if (stmt.step()) return stmt.col<id>();
         int64_t newdoc = conn->insert("doc(type_)", util::fmt("%s", DOCTYPE_PATH));
         return conn->insert("doc_path(id, path)", util::fmt("%s, %s", newdoc, parent));
     }
@@ -172,8 +185,8 @@ namespace idxb { namespace core
     int64_t Index::lookup_doc_file(int64_t path_id)
     {
         string s = util::fmt("SELECT id FROM doc_file WHERE path=%s", path_id);
-        db::Statement<int64_t> stmt(conn, s);
-        if (stmt.step()) return stmt.col0;
+        Statement_id stmt(conn, s);
+        if (stmt.step()) return stmt.col<id>();
         int64_t newdoc = conn->insert("doc(type_)", util::fmt("%s", DOCTYPE_FILE));
         return conn->insert("doc_file(id, path)", util::fmt("%s, %s", newdoc, path_id));
     }
