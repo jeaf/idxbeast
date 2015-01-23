@@ -1,44 +1,41 @@
 // todo: check that column tags are unique
-// todo: create traits class for Sqlite (e.g., SqliteTraits) to keeps pointers
-//       to functions for each type, e.g., sqlite_column_int, sqlite_bind_int,
-//       etc.
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <type_traits>
 #include <vector>
 
+#include "util.h"
+
 using namespace std;
+using namespace idxb::util;
 
 //////////////////////////////////////////////////////////////////////////////
-// TypeAt
+// SqliteTraits
 //////////////////////////////////////////////////////////////////////////////
-template <int I, typename... Ts> struct TypeAt;
-template <typename H, typename... Ts>
-struct TypeAt<0, H, Ts...>
+template <typename T, int I = 0> struct SqliteTraits
 {
-    typedef H type;
+    static T col() {static_assert(!is_same<T, T>::value, "Unsupported type");}
+    void bind(T)   {static_assert(!is_same<T, T>::value, "Unsupported type");}
 };
-template <int I, typename H, typename... Ts>
-struct TypeAt<I, H, Ts...>
-{
-    static_assert(I > 0, "TypeAt index negative");
-    typedef typename TypeAt<I - 1, Ts...>::type type;
-};
-template <int I>
-struct TypeAt<I> { static_assert(I < 0, "TypeAt index out of bounds"); };
 
-//////////////////////////////////////////////////////////////////////////////
-// SqliteCol
-//////////////////////////////////////////////////////////////////////////////
-template <int I, typename T>
-struct SqliteCol { static_assert(I < 0, "Unsupported type"); };
-template <int I>
-struct SqliteCol<I, int64_t> { static int64_t get() { return 3; } };
-template <int I>
-struct SqliteCol<I, double> { static double get() { return 999.111; } };
-template <int I>
-struct SqliteCol<I, string> { static string get() { return "abc"; } };
+template <int I> struct SqliteTraits<int64_t, I>
+{
+    static int64_t col() { return 3; };
+    static void bind(int64_t val) { cout << "bind int64_t: " << val << endl; };
+};
+
+template <int I> struct SqliteTraits<double, I>
+{
+    static double col() { return 999.111; }
+    static void bind(double val) { cout << "bind double: " << val << endl; };
+};
+
+template <int I> struct SqliteTraits<string, I>
+{
+    static string col() { return "abc"; }
+    static void bind(string val) { cout << "bind string: " << val << endl; };
+};
 
 //////////////////////////////////////////////////////////////////////////////
 // ColDef
@@ -75,7 +72,7 @@ struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
     template <typename R>
     R col(typename H::tag*)
     {
-        return SqliteCol<ColIdx, R>::get();
+        return SqliteTraits<R, ColIdx>::col();
     }
 
     template <typename R, typename T>
@@ -117,8 +114,7 @@ struct Bind<I, H, Ts...> : Bind<I + 1, Ts...>
     template <typename T>
     void bind(integral_constant<int, I>, T val)
     {
-        cout << "bind: " << val << endl;
-        //return SqliteCol<ColIdx, R>::get();
+        SqliteTraits<T, I>::bind(val);
     }
 
     template <typename T, int Idx>
@@ -179,10 +175,11 @@ int main()
     cout << endl;
 
     Stmt<ColSpec <ColDef<x1, int64_t>>,
-         BindSpec<double, int>
+         BindSpec<int64_t>
         > s3;
-    s3.bind<0>(123.456);
-    s3.bind<1>(888);
+    s3.bind<0>(123);
+    //s3.bind<1>(888);
+    //s3.bind<2>("delta");
     cout << s3.col<x1>() << endl;
 
     return 0;

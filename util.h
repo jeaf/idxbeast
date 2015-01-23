@@ -16,6 +16,27 @@
 
 namespace idxb { namespace util
 {
+    //////////////////////////////////////////////////////////////////////////////
+    // TypeAt
+    //////////////////////////////////////////////////////////////////////////////
+    template <int I, typename... Ts> struct TypeAt;
+    template <typename H, typename... Ts>
+    struct TypeAt<0, H, Ts...>
+    {
+        typedef H type;
+    };
+    template <int I, typename H, typename... Ts>
+    struct TypeAt<I, H, Ts...>
+    {
+        static_assert(I > 0, "TypeAt index negative");
+        typedef typename TypeAt<I - 1, Ts...>::type type;
+    };
+    template <int I>
+    struct TypeAt<I> { static_assert(I < 0, "TypeAt index out of bounds"); };
+
+    //////////////////////////////////////////////////////////////////////////////
+    // Misc
+    //////////////////////////////////////////////////////////////////////////////
     bool                     isfile (std::string path);
     bool                     isdir  (std::string path);
     std::string              abspath(std::string path);

@@ -23,7 +23,7 @@ charmap.o      : charmap.cpp charmap.h
 core.o         : core.cpp core.h charmap.h db.h util.h
 cui.o          : cui.cpp core.h util.h
 db.o           : db.cpp db.h sqlite3.h util.h
-sandbox.o      : sandbox.cpp
+sandbox.o      : sandbox.cpp util.h
 sqlite3.o      : sqlite3.c sqlite3.h
 sqlite3shell.o : sqlite3shell.c sqlite3.h
 test.o         : test.cpp core.h
