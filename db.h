@@ -169,7 +169,7 @@ namespace idxb { namespace db
     ///////////////////////////////////////////////////////////////////////////
     class Connection
     {
-        template <typename T0, typename T1> friend class Statement;
+        template <typename T0, typename T1> friend class Stmt;
 
     public:
         Connection(std::string path);
@@ -187,22 +187,22 @@ namespace idxb { namespace db
     };
 
     ///////////////////////////////////////////////////////////////////////////
-    // Statement
+    // Stmt
     ///////////////////////////////////////////////////////////////////////////
     template <typename Spec1 = EmptyType, typename Spec2 = EmptyType>
-    class Statement : public Spec1, public Spec2, virtual SqliteStmtHolder
+    class Stmt : public Spec1, public Spec2, virtual SqliteStmtHolder
     {
     public:
-        Statement(std::shared_ptr<Connection> conn, std::string sql) : conn_(conn)
+        Stmt(std::shared_ptr<Connection> conn, std::string sql) : conn_(conn)
         {
             stmt_ = nullptr;
             reset(sql);
         }
 
-        Statement(const Statement&)            = delete;
-        Statement& operator=(const Statement&) = delete;
+        Stmt(const Stmt&)            = delete;
+        Stmt& operator=(const Stmt&) = delete;
 
-        ~Statement()
+        ~Stmt()
         {
             sqlite3_finalize(stmt_);
         }

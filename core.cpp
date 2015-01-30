@@ -27,8 +27,8 @@ namespace
     struct id; struct docid; struct path_id; struct name; struct parent;
 
     // Useful typedefs for statements
-    typedef Statement<ColSpec<ColDef<id   , int64_t>>> Statement_id;
-    typedef Statement<ColSpec<ColDef<docid, int64_t>>> Statement_docid;
+    typedef Stmt<ColSpec<ColDef<id   , int64_t>>> Statement_id;
+    typedef Stmt<ColSpec<ColDef<docid, int64_t>>> Statement_docid;
 }
 
 namespace idxb { namespace core
@@ -147,7 +147,7 @@ namespace idxb { namespace core
 
         // Build the path
         string path;
-        Statement<ColSpec<ColDef<name, string>, ColDef<parent, int64_t>>>
+        Stmt<ColSpec<ColDef<name, string>, ColDef<parent, int64_t>>>
             stmt_name_parent(conn, util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_path.col<0>()));
         if (stmt_name_parent.step())
         {
