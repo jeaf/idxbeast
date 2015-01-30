@@ -66,24 +66,24 @@ namespace idxb { namespace db
     //////////////////////////////////////////////////////////////////////////////
     // ColDef
     //////////////////////////////////////////////////////////////////////////////
-    template <typename Tag, typename Type>
+    template <int TagValue, typename Type>
     struct ColDef
     {
-        typedef Tag  tag;
+        enum {tag = TagValue};
         typedef Type type;
     };
 
-    template <typename Tag, typename... Ts> struct ColDefLookup;
-    template <typename Tag, typename H, typename... Ts>
+    template <int Tag, typename... Ts> struct ColDefLookup;
+    template <int Tag, typename H, typename... Ts>
     struct ColDefLookup<Tag, H, Ts...>
     {
         typedef typename
-            conditional<is_same<Tag, typename H::tag>::value,
+            conditional<Tag == H::tag,
                         H,
                         typename ColDefLookup<Tag, Ts...>::result
                        >::type result;
     };
-    template <typename Tag> struct ColDefLookup<Tag>
+    template <int Tag> struct ColDefLookup<Tag>
     {
         typedef struct ErrorColDefNotFound result;
     };
@@ -96,13 +96,13 @@ namespace idxb { namespace db
     struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
     {
         template <typename R>
-        R col(sqlite3_stmt* stmt, typename H::tag*)
+        R col(sqlite3_stmt* stmt, integral_constant<int, H::tag>)
         {
             return SqliteTraits<R, ColIdx>::col(stmt);
         }
 
         template <typename R, typename T>
-        R col(sqlite3_stmt* stmt, T* tag)
+        R col(sqlite3_stmt* stmt, T tag)
         {
             return Col<ColIdx + 1, Ts...>::template col<R>(stmt, tag);
         }
@@ -114,19 +114,11 @@ namespace idxb { namespace db
     template <typename... Ts>
     struct ColSpec : Col<0, Ts...>, virtual SqliteStmtHolder
     {
-        template <typename ColTag>
+        template <int ColTag>
         typename ColDefLookup<ColTag, Ts...>::result::type col()
         {
             typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
-            return Col<0, Ts...>::template col<RetType>(stmt_, static_cast<ColTag*>(nullptr));
-        }
-
-        template <int ColIdx>
-        typename TypeAt<ColIdx, Ts...>::type::type col()
-        {
-            typedef typename TypeAt<ColIdx, Ts...>::type ColDefType;
-            typedef typename ColDefType::type RetType;
-            return Col<0, Ts...>::template col<RetType>(stmt_, static_cast<typename ColDefType::tag*>(nullptr));
+            return Col<0, Ts...>::template col<RetType>(stmt_, integral_constant<int, ColTag>());
         }
     };
 
