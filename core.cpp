@@ -24,8 +24,8 @@ const int64_t DOCTYPE_FILE = 20;
 namespace
 {
     // Useful typedefs for statements
-    typedef Stmt<ColSpec<ColDef<'id' , int64_t>>> Statement_id;
-    typedef Stmt<ColSpec<ColDef<'did', int64_t>>> Statement_docid;
+    typedef Stmt<Col<Def<'id' , int64_t>>> Statement_id;
+    typedef Stmt<Col<Def<'did', int64_t>>> Statement_docid;
 }
 
 namespace idxb { namespace core
@@ -131,7 +131,9 @@ namespace idxb { namespace core
 
     int64_t Index::lookup_word(string word)
     {
-        Statement_id stmt(conn, util::fmt("SELECT id FROM word WHERE word='%s';", word));
+        Stmt<Col<Def<'id', int64_t>>, Bind<string>>
+            stmt(conn, "SELECT id FROM word WHERE word=?;");
+        stmt.bind<1>(word);
         if (stmt.step()) return stmt.col<'id'>();
         return conn->insert("word(word)", util::fmt("'%s'", word));
     }
@@ -144,7 +146,7 @@ namespace idxb { namespace core
 
         // Build the path
         string path;
-        Stmt<ColSpec<ColDef<'name', string>, ColDef<'prnt', int64_t>>>
+        Stmt<Col<Def<'name', string>, Def<'prnt', int64_t>>>
             stmt_name_parent(conn, util::fmt("SELECT name, parent FROM path WHERE id=%s;", stmt_path.col<'id'>()));
         if (stmt_name_parent.step())
         {

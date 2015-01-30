@@ -64,36 +64,36 @@ namespace idxb { namespace db
     };
 
     //////////////////////////////////////////////////////////////////////////////
-    // ColDef
+    // Def
     //////////////////////////////////////////////////////////////////////////////
     template <int TagValue, typename Type>
-    struct ColDef
+    struct Def
     {
         enum {tag = TagValue};
         typedef Type type;
     };
 
-    template <int Tag, typename... Ts> struct ColDefLookup;
+    template <int Tag, typename... Ts> struct DefLookup;
     template <int Tag, typename H, typename... Ts>
-    struct ColDefLookup<Tag, H, Ts...>
+    struct DefLookup<Tag, H, Ts...>
     {
         typedef typename
             conditional<Tag == H::tag,
                         H,
-                        typename ColDefLookup<Tag, Ts...>::result
+                        typename DefLookup<Tag, Ts...>::result
                        >::type result;
     };
-    template <int Tag> struct ColDefLookup<Tag>
+    template <int Tag> struct DefLookup<Tag>
     {
         typedef struct ErrorColDefNotFound result;
     };
 
     //////////////////////////////////////////////////////////////////////////////
-    // Col
+    // ColBase
     //////////////////////////////////////////////////////////////////////////////
-    template <int ColIdx, typename... Ts> struct Col{};
+    template <int ColIdx, typename... Ts> struct ColBase{};
     template <int ColIdx, typename H, typename... Ts>
-    struct Col<ColIdx, H, Ts...> : Col<ColIdx + 1, Ts...>
+    struct ColBase<ColIdx, H, Ts...> : ColBase<ColIdx + 1, Ts...>
     {
         template <typename R>
         R col(sqlite3_stmt* stmt, integral_constant<int, H::tag>)
@@ -104,30 +104,30 @@ namespace idxb { namespace db
         template <typename R, typename T>
         R col(sqlite3_stmt* stmt, T tag)
         {
-            return Col<ColIdx + 1, Ts...>::template col<R>(stmt, tag);
+            return ColBase<ColIdx + 1, Ts...>::template col<R>(stmt, tag);
         }
     };
 
     //////////////////////////////////////////////////////////////////////////////
-    // ColSpec
+    // Col
     //////////////////////////////////////////////////////////////////////////////
     template <typename... Ts>
-    struct ColSpec : Col<0, Ts...>, virtual SqliteStmtHolder
+    struct Col : ColBase<0, Ts...>, virtual SqliteStmtHolder
     {
         template <int ColTag>
-        typename ColDefLookup<ColTag, Ts...>::result::type col()
+        typename DefLookup<ColTag, Ts...>::result::type col()
         {
-            typedef typename ColDefLookup<ColTag, Ts...>::result::type RetType;
-            return Col<0, Ts...>::template col<RetType>(stmt_, integral_constant<int, ColTag>());
+            typedef typename DefLookup<ColTag, Ts...>::result::type RetType;
+            return ColBase<0, Ts...>::template col<RetType>(stmt_, integral_constant<int, ColTag>());
         }
     };
 
     //////////////////////////////////////////////////////////////////////////////
-    // Bind
+    // BindBase
     //////////////////////////////////////////////////////////////////////////////
-    template <int I, typename... Ts> struct Bind{};
+    template <int I, typename... Ts> struct BindBase{};
     template <int I, typename H, typename... Ts>
-    struct Bind<I, H, Ts...> : Bind<I + 1, Ts...>
+    struct BindBase<I, H, Ts...> : BindBase<I + 1, Ts...>
     {
         template <typename T>
         void bind(sqlite3_stmt* stmt, integral_constant<int, I>, T val)
@@ -138,20 +138,20 @@ namespace idxb { namespace db
         template <typename T, int Idx>
         void bind(sqlite3_stmt* stmt, integral_constant<int, Idx> col_idx, T val)
         {
-            Bind<I + 1, Ts...>::template bind<T>(stmt, col_idx, val);
+            BindBase<I + 1, Ts...>::template bind<T>(stmt, col_idx, val);
         }
     };
 
     //////////////////////////////////////////////////////////////////////////////
-    // BindSpec
+    // Bind
     //////////////////////////////////////////////////////////////////////////////
     template <typename... Ts>
-    struct BindSpec : Bind<0, Ts...>, virtual SqliteStmtHolder
+    struct Bind : BindBase<1, Ts...>, virtual SqliteStmtHolder
     {
         template <int I>
-        void bind(typename TypeAt<I, Ts...>::type val)
+        void bind(typename TypeAt<I - 1, Ts...>::type val)
         {
-            Bind<0, Ts...>::template bind<typename TypeAt<I, Ts...>::type>(
+            BindBase<1, Ts...>::template bind<typename TypeAt<I - 1, Ts...>::type>(
                 stmt_, integral_constant<int, I>(), val);
         }
     };
