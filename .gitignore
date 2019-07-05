@@ -1,14 +1,3 @@
-*.def
-*.dll
 *.pyc
 *.pyo
-*.swp
-*.o
-dump.txt
-idxb.db
-idxb.exe
-idxb.exe.stackdump
-sandbox.exe
-sqlite3shell.exe
-test.exe
 
